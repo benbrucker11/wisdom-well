@@ -20,14 +20,34 @@ export default async function RootLayout({
     <html lang="en">
       <body className="min-h-screen">
         <header className="border-b border-rule">
-          <div className="mx-auto flex max-w-3xl items-baseline justify-between px-6 py-5">
+          <div className="mx-auto flex max-w-3xl flex-wrap items-baseline justify-between gap-x-6 gap-y-2 px-6 py-5">
             <Link
               href="/"
               className="font-serif text-xl tracking-tight text-ink no-underline"
             >
               Wisdom&nbsp;Well
             </Link>
-            {user ? (
+            {user?.member ? (
+              <nav className="flex items-baseline gap-5 text-sm">
+                <Link href="/entries" className="text-ink-soft no-underline hover:text-ink">
+                  Entries
+                </Link>
+                <Link href="/family" className="text-ink-soft no-underline hover:text-ink">
+                  Family
+                </Link>
+                <Link
+                  href="/confirmations"
+                  className="text-ink-soft no-underline hover:text-ink"
+                >
+                  Confirmations
+                </Link>
+                <form action="/api/auth/logout" method="post">
+                  <button type="submit" className="text-ink-soft hover:text-ink">
+                    Sign out
+                  </button>
+                </form>
+              </nav>
+            ) : user ? (
               <form action="/api/auth/logout" method="post">
                 <button
                   type="submit"

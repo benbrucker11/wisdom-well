@@ -10,3 +10,6 @@ next-env.d.ts
 *.tsbuildinfo
 .DS_Store
 prisma/dev.db
+
+# Local object storage (entry media + raw audio) when STORAGE_DIR is unset
+/storage

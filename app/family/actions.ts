@@ -4,16 +4,35 @@ import { revalidatePath } from "next/cache";
 import { RelationshipType } from "@prisma/client";
 import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { evaluateFamily } from "@/lib/release";
 
 const RELATIONSHIP_TYPES = new Set<string>(Object.values(RelationshipType));
+
+function str(formData: FormData, key: string): string {
+  return String(formData.get(key) ?? "").trim();
+}
+
+/**
+ * Any change to the family tree can make a role rule newly match someone (a
+ * grandchild who didn't exist when the rule was written, a date of birth
+ * finally recorded, a death confirmed). Re-run the release engine after each
+ * one — spec §4.
+ */
+async function reevaluate(familyId: string) {
+  try {
+    await evaluateFamily(familyId);
+  } catch (err) {
+    console.error("evaluateFamily failed after tree change", err);
+  }
+}
 
 export async function addMember(formData: FormData) {
   const { member } = await requireMember();
 
-  const givenName = String(formData.get("givenName") ?? "").trim();
-  const surname = String(formData.get("surname") ?? "").trim();
-  const dateOfBirth = String(formData.get("dateOfBirth") ?? "").trim();
-  const dateOfDeath = String(formData.get("dateOfDeath") ?? "").trim();
+  const givenName = str(formData, "givenName");
+  const surname = str(formData, "surname");
+  const dateOfBirth = str(formData, "dateOfBirth");
+  const dateOfDeath = str(formData, "dateOfDeath");
 
   if (!givenName || !surname) return;
 
@@ -27,15 +46,40 @@ export async function addMember(formData: FormData) {
     },
   });
 
+  await reevaluate(member.familyId);
+  revalidatePath("/family");
+}
+
+export async function updateMember(formData: FormData) {
+  const { member } = await requireMember();
+  const id = str(formData, "id");
+  const dateOfBirth = str(formData, "dateOfBirth");
+  const dateOfDeath = str(formData, "dateOfDeath");
+
+  const target = await prisma.member.findFirst({
+    where: { id, familyId: member.familyId },
+    select: { id: true },
+  });
+  if (!target) return;
+
+  await prisma.member.update({
+    where: { id },
+    data: {
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+      dateOfDeath: dateOfDeath ? new Date(dateOfDeath) : null,
+    },
+  });
+
+  await reevaluate(member.familyId);
   revalidatePath("/family");
 }
 
 export async function addRelationship(formData: FormData) {
   const { member } = await requireMember();
 
-  const fromMemberId = String(formData.get("fromMemberId") ?? "");
-  const toMemberId = String(formData.get("toMemberId") ?? "");
-  const type = String(formData.get("type") ?? "");
+  const fromMemberId = str(formData, "fromMemberId");
+  const toMemberId = str(formData, "toMemberId");
+  const type = str(formData, "type");
 
   if (!fromMemberId || !toMemberId || fromMemberId === toMemberId) return;
   if (!RELATIONSHIP_TYPES.has(type)) return;
@@ -59,12 +103,13 @@ export async function addRelationship(formData: FormData) {
     })
     .catch(() => {});
 
+  await reevaluate(member.familyId);
   revalidatePath("/family");
 }
 
 export async function deleteRelationship(formData: FormData) {
   const { member } = await requireMember();
-  const id = String(formData.get("id") ?? "");
+  const id = str(formData, "id");
   if (!id) return;
 
   // Scope the delete to the user's family.
@@ -72,5 +117,8 @@ export async function deleteRelationship(formData: FormData) {
     where: { id, familyId: member.familyId },
   });
 
+  // Deleting a relationship never removes an existing Release (those are
+  // permanent) but keeps future evaluation consistent.
+  await reevaluate(member.familyId);
   revalidatePath("/family");
 }

@@ -3,56 +3,96 @@
 A place where a family keeps its stories, values, and ideals — structured,
 searchable, and released to the right person at the right moment.
 
-This repository is being built in the phases described in the product brief.
-**Phase 1 (Foundations) is implemented here.** Nothing from later phases
-(entries, the release engine, stewardship succession, the voice interview) is
-present yet.
+Built in the phases described in the product brief.
+
+- **Phase 1 — Foundations:** done.
+- **Phase 2 — Entries & the release engine:** done.
+- Phase 3 (stewardship & succession) and Phase 4 (voice interview) are not
+  started. Schema fields they need (`Family.inactivityThresholdDays`,
+  `Entry.rawAudioUrl` / `transcriptRaw` / `transcriptStatus`) already exist.
 
 ---
 
-## What Phase 1 contains
+## Phase 1 — Foundations
 
 | Area | Where |
 | --- | --- |
 | Passwordless auth (email magic link) | `lib/auth.ts`, `lib/mail.ts`, `app/login`, `app/api/auth/*` |
 | Family creation / onboarding | `app/onboarding` |
-| Member records | `app/family` (add person), `prisma/schema.prisma` |
+| Member records, dates of birth/death | `app/family`, `prisma/schema.prisma` |
 | Relationship graph (`PARENT_OF` / `SPOUSE_OF` / `SIBLING_OF`) | `prisma/schema.prisma`, `app/family` |
 | `resolveRelationship` + `getDescendants` (+ `describeFamilyFrom`) | `lib/relationships/` |
-| Relationship-logic tests | `lib/relationships/graph.test.ts` |
 | Family tree UI (view, add member, define relationship, "who are X's grandchildren?") | `app/family/page.tsx` |
 
-### Design of the relationship layer
-
-`lib/relationships/graph.ts` is **pure** — it takes a list of asserted edges and
-computes everything else. Grandparent, grandchild, aunt, cousin, descendant,
-in-law, etc. are **derived by traversal**, never stored. `PARENT_OF` is the only
-source of truth for lineage; `SPOUSE_OF` is treated as symmetric; `SIBLING_OF`
-is stored as a user-asserted fact but siblings are inferred from shared parents.
-
-`lib/relationships/index.ts` wraps the pure core with the database and exposes
-the signatures the rest of the app (and the Phase 2 release engine) will use:
-
-```ts
-resolveRelationship(fromMemberId, toMemberId): Promise<string>
-getDescendants(memberId, generations): Promise<DescendantMember[]>
-```
-
-Because the core is pure, its tests need no database — see
-`lib/relationships/graph.test.ts` (five generations, ~30 assertions covering the
-Phase 1 "done when" criterion and the full lineal / collateral / in-law matrix).
+`lib/relationships/graph.ts` is **pure** — it takes asserted edges and derives
+grandparent / grandchild / aunt / cousin / descendant / in-law by traversal,
+never storing them. `PARENT_OF` is the only source of truth for lineage;
+`SPOUSE_OF` is symmetric; siblings are inferred from shared parents.
 
 **Known open question (brief §10):** `getDescendants` follows `PARENT_OF` only,
-so adoption and step-relationships are not modelled. Flagged in
-`prisma/schema.prisma` and `lib/relationships/graph.ts`.
+so adoption and step-relationships are not modelled. Flagged in the schema and
+`graph.ts`.
+
+## Phase 2 — Entries & the release engine
+
+| Area | Where |
+| --- | --- |
+| Entry CRUD (text / image / uploaded video) | `app/entries/`, `app/entries/actions.ts` |
+| Media upload + access-gated serving | `app/api/uploads`, `app/api/media/[...key]`, `lib/storage.ts` |
+| Release-rule builder UI | `app/entries/_components/rule-builder.tsx` |
+| The evaluation engine (pure) | `lib/release/engine.ts` |
+| Visibility / `visibleEntriesFor` (pure + DB) | `lib/release/visibility.ts`, `lib/release/index.ts` |
+| Daily job | `app/api/cron/evaluate` |
+| Event confirmation queue + steward aggregate view | `app/confirmations/` |
+| Engine + visibility tests | `lib/release/*.test.ts` |
+| End-to-end check against real Postgres | `scripts/e2e-phase2.ts` (`npm run e2e`) |
+
+### How the release engine is built (brief §4)
+
+`lib/release/engine.ts` is an **isolated, pure module** — no database, no
+framework. `evaluateReleases(snapshot)` takes members, lineage edges, published
+entries, their rules and the recorded event confirmations, and returns the
+`(entry, recipient)` pairs that should now have a `Release` row. It is
+deterministic and idempotent, and re-run from scratch on every relevant change:
+
+- **entry publish** — fires `IMMEDIATE` rules at once (`publishEntry`);
+- **any tree change** — member added, date of birth set, relationship created
+  (`app/family/actions.ts`). This is what makes a `ROLE(GRANDCHILD)` rule
+  written today fire in thirty years for a grandchild not yet born;
+- **event confirmation** — `confirmEvent` in `lib/release/index.ts`;
+- **once a day** — `GET/POST /api/cron/evaluate` (protect with `CRON_SECRET`),
+  as a backstop for `AGE` and `DATE` triggers crossing their threshold.
+
+`Release` rows are **irreversible** — the engine only ever adds them. There is
+no unrelease.
+
+### The visibility boundary (brief §5)
+
+Every read of entries goes through `visibleEntriesFor(memberId)` /
+`visibleEntry(memberId, entryId)` in `lib/release/index.ts`. **No page or route
+queries the `Entry` table directly.** A gated entry is absent from that list
+entirely — no title, no thumbnail, no count. The author always sees their own
+drafts and scheduled entries; being the Steward grants nothing here (they get a
+content-free aggregate count for succession, and the event queue by label).
+
+### Event triggers
+
+Life events can't be detected automatically, so `EVENT` rules are pending
+confirmations. `/confirmations` shows "waiting on: Michael's wedding" to the
+Steward (and the living author); confirming records an `EventConfirmation` and
+re-evaluates. `DEATH_OF_AUTHOR` is confirmed by recording the author's date of
+death.
+
+### Storage
+
+`lib/storage.ts` writes media to local disk by default (`./storage`) so the
+prototype runs with no cloud credentials. Setting `S3_BUCKET` switches to
+presigned S3 uploads — that path is a single marked seam, not yet implemented.
+Raw interview audio, once Phase 4 adds it, is retained permanently (brief §6).
 
 ---
 
 ## Running it
-
-> **Note:** this was written on a machine with no Node.js / Postgres toolchain,
-> so the commands below have **not been executed here**. They are the standard
-> setup; expect to iterate on exact dependency versions on first `npm install`.
 
 ### 1. Prerequisites
 
@@ -69,19 +109,21 @@ cp .env.example .env   # already contains a localhost DATABASE_URL
 ### 3. Database
 
 ```bash
-npx prisma migrate dev --name phase1_foundations   # create + apply the schema
-npm run db:seed                                     # optional: 4-generation demo family
+npm run db:migrate     # prisma migrate deploy — applies prisma/migrations
+npm run db:seed        # optional: a 4-generation demo family
 ```
 
-### 4. Tests (no database required)
+(For iterative schema work use `npm run db:migrate:dev`; `npm run db:push` skips
+migration files entirely.)
+
+### 4. Tests
 
 ```bash
-npm test
+npm test        # pure unit suites — no database needed
+npm run e2e     # spins up a throwaway Postgres, drives the real release
+                # engine through every rule shape (needs the optional
+                # embedded-postgres dev dependency)
 ```
-
-This runs the relationship-logic suite. It is the primary Phase 1 acceptance
-check: it proves the app can answer *"who are X's grandchildren?"* and resolves
-the full relationship matrix.
 
 ### 5. Dev server
 
@@ -91,28 +133,48 @@ npm run dev
 
 Then open <http://localhost:3000>:
 
-1. Enter your email. The sign-in link is printed to the **server console**
-   (no SMTP needed locally; set `SMTP_URL` in `.env` for real delivery).
+1. Enter your email — the sign-in link is printed to the **server console**
+   (set `SMTP_URL` in `.env` for real delivery).
 2. Follow the link → create your family (you become the founding Steward).
-3. On `/family`: add people, record `parent` / `married to` / `sibling` links,
-   then click any person to see the tree from their point of view, including
-   their grandchildren.
+3. `/family` — add people and relationships; click anyone to see the tree from
+   their point of view.
+4. `/entries/new` — write an entry, then add release rules and publish it.
+5. `/confirmations` — confirm life events; steward sees the aggregate view.
 
 ---
 
-## Phase 1 acceptance
+## Acceptance
 
-> A user can sign up, create a family, add three generations of members, and the
-> app can correctly answer "who are X's grandchildren?"
+### Phase 1
 
-- Sign up / create family: `app/login` → `app/onboarding`
-- Add generations / relationships: `app/family`
-- "Who are X's grandchildren?": the **Seen from …** panel on `/family`, and
-  `describeFamilyFrom` / `getDescendants` in `lib/relationships`
-- Automated proof: `npm test`
+> A user can sign up, create a family, add three generations, and the app can
+> answer "who are X's grandchildren?"
+
+`app/login` → `app/onboarding` → `app/family`; the **Seen from …** panel and
+`getDescendants`. Proof: `npm test` (`lib/relationships/graph.test.ts`).
+
+### Phase 2
+
+> All six rule shapes in §3 work end to end, the hidden-until-release rule holds
+> under direct query, and the unborn-grandchild test passes.
+
+Proof: `npm run e2e` drives all six shapes, the unborn-grandchild scenario, the
+hidden-under-direct-query check and irreversibility against a real Postgres;
+`lib/release/engine.test.ts` and `lib/release/visibility.test.ts` cover the same
+logic as fast pure tests.
+
+## Verification status
+
+Everything below has been run on this codebase:
+
+- `npm test` — pure unit suites (relationship graph, release engine, visibility)
+- `npm run e2e` — full release engine against real Postgres
+- `npx tsc --noEmit` and `npx next build` — clean
+- manual click-through: sign in → onboarding → create entry → add rule →
+  publish → entry shows **Released** / **Received by**, steward aggregate updates
 
 ## Stack
 
 Next.js (App Router) · TypeScript · Postgres · Prisma · Tailwind CSS v4 ·
-Vitest. Auth is a hand-rolled magic-link flow (opaque session token in a
-`Session` row + httpOnly cookie) — no third-party auth dependency, no passwords.
+Vitest. Auth is a hand-rolled magic-link flow (opaque session token +
+httpOnly cookie) — no third-party auth dependency, no passwords.

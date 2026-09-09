@@ -1,9 +1,12 @@
-// Wisdom Well — Phase 1 schema (Foundations).
+// Wisdom Well schema.
 //
-// Scope of this phase: authentication, families, members, and the relationship
-// graph. Entry / ReleaseRule / Release models arrive in Phase 2 and are
-// intentionally omitted here so the migration history stays aligned with the
-// build phases.
+// Phase 1 (Foundations): authentication, families, members, relationship graph.
+// Phase 2 (Entries & the release engine): Entry, ReleaseRule, Release,
+//   EventConfirmation.
+//
+// Stewardship succession (Phase 3) and voice-interview transcript workflow
+// (Phase 4) reuse fields already present here (Family.inactivityThresholdDays,
+// Entry.rawAudioUrl / transcriptRaw / transcriptStatus) but add no models yet.
 
 generator client {
   provider = "prisma-client-js"
@@ -64,6 +67,7 @@ model Family {
 
   members       Member[]       @relation("FamilyMembers")
   relationships Relationship[]
+  entries       Entry[]
 }
 
 // A person in the family tree. May or may not have a login: children, deceased
@@ -84,6 +88,11 @@ model Member {
   stewardOf         Family?        @relation("FamilySteward")
   relationshipsFrom Relationship[] @relation("RelationshipFrom")
   relationshipsTo   Relationship[] @relation("RelationshipTo")
+
+  entriesAuthored    Entry[]             @relation("EntryAuthor")
+  rulesTargeting     ReleaseRule[]       @relation("RuleTargetMember")
+  releasesReceived   Release[]           @relation("ReleaseRecipient")
+  eventConfirmations EventConfirmation[] @relation("ConfirmationSubject")
 
   @@index([familyId])
 }
@@ -119,4 +128,159 @@ model Relationship {
   @@index([familyId])
   @@index([fromMemberId])
   @@index([toMemberId])
+}
+
+// --- Entries & the release engine (Phase 2) -------------------------------
+
+enum MediaType {
+  TEXT
+  AUDIO
+  VIDEO
+  IMAGE
+}
+
+enum TranscriptStatus {
+  NONE
+  PROCESSING
+  DRAFT
+  APPROVED
+}
+
+enum EntryStatus {
+  DRAFT // author is still writing; invisible to everyone else, never evaluated
+  SCHEDULED // published; rules are live and waiting for their triggers
+  RELEASED // published; at least one recipient has received it
+}
+
+// A single piece of wisdom — the atomic unit of the product.
+model Entry {
+  id             String    @id @default(cuid())
+  familyId       String
+  family         Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  authorMemberId String
+  author         Member    @relation("EntryAuthor", fields: [authorMemberId], references: [id])
+  title          String
+  body           String // rich text
+  mediaType      MediaType @default(TEXT)
+  mediaUrl       String?
+
+  // Phase 4 (voice interview). The recording in the person's own voice is the
+  // artifact; the transcript is a convenience layer over it and is never the
+  // reason the audio is deleted.
+  rawAudioUrl      String?
+  transcriptRaw    String?
+  transcriptStatus TranscriptStatus @default(NONE)
+
+  status     EntryStatus @default(DRAFT)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  releasedAt DateTime?
+
+  rules    ReleaseRule[]
+  releases Release[]
+
+  @@index([familyId])
+  @@index([authorMemberId])
+  @@index([status])
+}
+
+enum ReleaseTargetType {
+  IMMEDIATE // everyone in the family, right now (only valid with trigger NONE)
+  SPECIFIC_MEMBER // one named member
+  ROLE // everyone matching a role relative to the author
+}
+
+enum ReleaseTargetRole {
+  CHILD
+  GRANDCHILD
+  GREAT_GRANDCHILD
+  ANY_DESCENDANT
+  ALL_FAMILY
+}
+
+enum ReleaseTriggerType {
+  NONE
+  AGE
+  DATE
+  EVENT
+}
+
+enum ReleaseTriggerEvent {
+  MARRIAGE
+  GRADUATION
+  BIRTH_OF_FIRST_CHILD
+  DEATH_OF_AUTHOR
+  CUSTOM
+}
+
+// The condition governing when an Entry becomes visible to its recipients.
+// Attached to the Entry, not the Family. An Entry has one or more rules; if ANY
+// rule matches for a given Member, that Member can see the Entry.
+//
+// The full matrix the product needs (spec §3):
+//   IMMEDIATE     + NONE            everyone, now
+//   SPECIFIC(x)   + AGE(n)          for x when they turn n
+//   ROLE(GRANDCHILD) + AGE(n)       for any grandchild when they turn n
+//   ROLE(ALL_FAMILY) + DATE(d)      for the whole family on date d
+//   SPECIFIC(x)   + EVENT(MARRIAGE) for x when they marry
+//   ROLE(ANY_DESCENDANT) + ...      for every descendant, forever
+model ReleaseRule {
+  id             String             @id @default(cuid())
+  entryId        String
+  entry          Entry              @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  targetType     ReleaseTargetType
+  targetMemberId String?
+  targetMember   Member?            @relation("RuleTargetMember", fields: [targetMemberId], references: [id])
+  targetRole     ReleaseTargetRole?
+
+  triggerType       ReleaseTriggerType   @default(NONE)
+  triggerAge        Int?
+  triggerDate       DateTime?
+  triggerEvent      ReleaseTriggerEvent?
+  triggerEventLabel String? // for CUSTOM
+
+  createdAt DateTime @default(now())
+
+  releases      Release[]
+  confirmations EventConfirmation[]
+
+  @@index([entryId])
+}
+
+// A materialized record of a rule firing for a specific person. This is what
+// the read layer (visibleEntriesFor) queries. Releases are irreversible: once
+// a row exists the recipient keeps access. There is no unrelease.
+model Release {
+  id                String      @id @default(cuid())
+  entryId           String
+  entry             Entry       @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  ruleId            String
+  rule              ReleaseRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  recipientMemberId String
+  recipient         Member      @relation("ReleaseRecipient", fields: [recipientMemberId], references: [id], onDelete: Cascade)
+  releasedAt        DateTime    @default(now())
+
+  // An Entry releases to a given person exactly once, no matter how many rules
+  // would match them.
+  @@unique([entryId, recipientMemberId])
+  @@index([recipientMemberId])
+  @@index([entryId])
+}
+
+// A Steward's (or living author's) manual confirmation that an EVENT trigger
+// has occurred for a specific person — "Michael's wedding happened". EVENT
+// rules cannot be detected automatically and guessing would be worse than
+// asking. DEATH_OF_AUTHOR is confirmed instead by setting the author's
+// Member.dateOfDeath, so it needs no row here.
+model EventConfirmation {
+  id                  String      @id @default(cuid())
+  ruleId              String
+  rule                ReleaseRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  subjectMemberId     String
+  subject             Member      @relation("ConfirmationSubject", fields: [subjectMemberId], references: [id], onDelete: Cascade)
+  confirmedByMemberId String?
+  confirmedAt         DateTime    @default(now())
+
+  @@unique([ruleId, subjectMemberId])
+  @@index([ruleId])
 }

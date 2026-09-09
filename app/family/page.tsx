@@ -3,7 +3,16 @@ import type { Member } from "@prisma/client";
 import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { describeFamilyFrom } from "@/lib/relationships";
-import { addMember, addRelationship, deleteRelationship } from "./actions";
+import {
+  addMember,
+  addRelationship,
+  deleteRelationship,
+  updateMember,
+} from "./actions";
+
+function isoDate(d: Date | null): string {
+  return d ? d.toISOString().slice(0, 10) : "";
+}
 
 const RELATIONSHIP_VERB: Record<string, string> = {
   PARENT_OF: "is a parent of",
@@ -77,21 +86,17 @@ export default async function FamilyPage({
           {members.map((m) => {
             const span = lifespan(m);
             return (
-              <li key={m.id}>
-                <Link
-                  href={`/family?focus=${m.id}`}
-                  className={`flex items-baseline justify-between px-1 py-3 no-underline ${
-                    m.id === focusId ? "text-ink" : "text-ink-soft"
-                  }`}
-                >
+              <li key={m.id} className="px-1 py-3">
+                <div className="flex items-baseline justify-between">
                   <span>
-                    <span
-                      className={
+                    <Link
+                      href={`/family?focus=${m.id}`}
+                      className={`no-underline ${
                         m.id === focusId ? "font-semibold text-ink" : "text-ink"
-                      }
+                      }`}
                     >
                       {fullName(m)}
-                    </span>
+                    </Link>
                     {m.id === user.member?.id ? (
                       <span className="ml-2 text-xs text-accent">you</span>
                     ) : null}
@@ -104,10 +109,43 @@ export default async function FamilyPage({
                       </span>
                     ) : null}
                   </span>
-                  <span className="text-sm tabular-nums text-ink-soft">
-                    {span}
-                  </span>
-                </Link>
+                  <span className="text-sm tabular-nums text-ink-soft">{span}</span>
+                </div>
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-xs text-ink-soft">
+                    Edit dates
+                  </summary>
+                  <form
+                    action={updateMember}
+                    className="mt-2 flex flex-wrap items-end gap-3"
+                  >
+                    <input type="hidden" name="id" value={m.id} />
+                    <label className="text-xs text-ink-soft">
+                      Born
+                      <input
+                        type="date"
+                        name="dateOfBirth"
+                        defaultValue={isoDate(m.dateOfBirth)}
+                        className="mt-1 block rounded border border-rule bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="text-xs text-ink-soft">
+                      Died
+                      <input
+                        type="date"
+                        name="dateOfDeath"
+                        defaultValue={isoDate(m.dateOfDeath)}
+                        className="mt-1 block rounded border border-rule bg-white px-2 py-1"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      className="rounded bg-accent px-3 py-1 text-sm text-white hover:opacity-90"
+                    >
+                      Save
+                    </button>
+                  </form>
+                </details>
               </li>
             );
           })}
@@ -165,8 +203,8 @@ export default async function FamilyPage({
         <section className="rounded border border-rule bg-parchment-deep p-5">
           <h2 className="font-serif text-xl">Missing dates of birth</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Age-based release rules (Phase 2) cannot evaluate against a person
-            with no date of birth.
+            An age-based release rule cannot evaluate against a person with no
+            date of birth. Add one under &ldquo;Edit dates&rdquo; above.
           </p>
           <p className="mt-2">
             {missingDob.map((m) => fullName(m)).join(", ")}
