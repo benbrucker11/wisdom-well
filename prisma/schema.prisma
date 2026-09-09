@@ -1,0 +1,122 @@
+// Wisdom Well — Phase 1 schema (Foundations).
+//
+// Scope of this phase: authentication, families, members, and the relationship
+// graph. Entry / ReleaseRule / Release models arrive in Phase 2 and are
+// intentionally omitted here so the migration history stays aligned with the
+// build phases.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Authentication ---------------------------------------------------------
+
+// An authenticated account. Linked to exactly one Member once onboarding is
+// complete. `member` is nullable only for the brief window between first
+// sign-in and creating/joining a family.
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  createdAt DateTime  @default(now())
+  member    Member?
+  sessions  Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Single-use, short-lived token emailed to the user for passwordless sign-in.
+model MagicLinkToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  email     String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+}
+
+// --- Family & tree ---------------------------------------------------------
+
+model Family {
+  id                      String   @id @default(cuid())
+  name                    String
+  // The Member responsible for this Family. Nullable only during creation
+  // (the steward Member is created immediately after the Family row).
+  stewardMemberId         String?  @unique
+  stewardMember           Member?  @relation("FamilySteward", fields: [stewardMemberId], references: [id])
+  inactivityThresholdDays Int      @default(365)
+  createdAt               DateTime @default(now())
+
+  members       Member[]       @relation("FamilyMembers")
+  relationships Relationship[]
+}
+
+// A person in the family tree. May or may not have a login: children, deceased
+// ancestors, and not-yet-born descendants exist as records without a `user`.
+model Member {
+  id          String    @id @default(cuid())
+  familyId    String
+  family      Family    @relation("FamilyMembers", fields: [familyId], references: [id], onDelete: Cascade)
+  givenName   String
+  familyName  String
+  // Required before any age-based release rule can evaluate against this person.
+  dateOfBirth DateTime?
+  dateOfDeath DateTime?
+  userId      String?   @unique
+  user        User?     @relation(fields: [userId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  stewardOf         Family?        @relation("FamilySteward")
+  relationshipsFrom Relationship[] @relation("RelationshipFrom")
+  relationshipsTo   Relationship[] @relation("RelationshipTo")
+
+  @@index([familyId])
+}
+
+enum RelationshipType {
+  PARENT_OF
+  SPOUSE_OF
+  SIBLING_OF
+}
+
+// An asserted relationship between two members.
+//
+// PARENT_OF is the single source of truth for lineage. Grandparent,
+// grandchild, aunt, cousin, descendant, etc. are NOT stored — they are derived
+// by graph traversal in lib/relationships. SPOUSE_OF / SIBLING_OF are stored as
+// user-asserted facts; traversal treats SPOUSE_OF as symmetric and does not use
+// SIBLING_OF for lineage (siblings are inferred from shared parents).
+//
+// KNOWN OPEN QUESTION (spec §10): getDescendants follows PARENT_OF only, so
+// adoption and step-relationships are not yet modelled.
+model Relationship {
+  id           String           @id @default(cuid())
+  familyId     String
+  family       Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  fromMemberId String
+  fromMember   Member           @relation("RelationshipFrom", fields: [fromMemberId], references: [id], onDelete: Cascade)
+  toMemberId   String
+  toMember     Member           @relation("RelationshipTo", fields: [toMemberId], references: [id], onDelete: Cascade)
+  type         RelationshipType
+  createdAt    DateTime         @default(now())
+
+  @@unique([fromMemberId, toMemberId, type])
+  @@index([familyId])
+  @@index([fromMemberId])
+  @@index([toMemberId])
+}

@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+
+  --color-parchment: #faf7f1;
+  --color-parchment-deep: #f2ece0;
+  --color-ink: #2a2420;
+  --color-ink-soft: #6b6156;
+  --color-rule: #e3dccd;
+  --color-accent: #7c5b3f;
+  --color-danger: #8a3b2f;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-parchment);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 18px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--color-accent);
+  text-underline-offset: 2px;
+}
+
+/* Long-form wisdom text — reads like a book, not a dashboard. */
+.prose-entry {
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
+  line-height: 1.85;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
