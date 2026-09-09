@@ -30,10 +30,11 @@ export async function createFamily(formData: FormData) {
       },
     });
 
-    // The creator is the founding Steward (spec §2).
+    // The creator is the founding Steward (spec §2) and the founder — the root
+    // for policy-based succession (spec §10).
     await tx.family.update({
       where: { id: family.id },
-      data: { stewardMemberId: member.id },
+      data: { stewardMemberId: member.id, founderMemberId: member.id },
     });
   });
 

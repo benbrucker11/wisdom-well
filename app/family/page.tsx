@@ -7,8 +7,17 @@ import {
   addMember,
   addRelationship,
   deleteRelationship,
+  endRelationship,
+  setMemberStatus,
   updateMember,
 } from "./actions";
+
+const PARENT_KIND_LABEL: Record<string, string> = {
+  BIOLOGICAL: "",
+  ADOPTIVE: " (adoptive)",
+  STEP: " (step)",
+  GUARDIAN: " (guardian)",
+};
 
 function isoDate(d: Date | null): string {
   return d ? d.toISOString().slice(0, 10) : "";
@@ -36,7 +45,7 @@ function lifespan(m: Member): string | null {
 export default async function FamilyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ focus?: string }>;
+  searchParams: Promise<{ focus?: string; error?: string }>;
 }) {
   const { user, member } = await requireMember();
   const family = member.family;
@@ -79,6 +88,14 @@ export default async function FamilyPage({
         </p>
       </header>
 
+      {sp.error === "steward-departed" ? (
+        <p className="rounded border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+          The steward can&rsquo;t be marked as having left the family. Transfer
+          stewardship first on the{" "}
+          <Link href="/steward">stewardship</Link> page.
+        </p>
+      ) : null}
+
       {/* --- The people ------------------------------------------------- */}
       <section>
         <h2 className="font-serif text-2xl">The people</h2>
@@ -108,43 +125,68 @@ export default async function FamilyPage({
                         no login
                       </span>
                     ) : null}
+                    {m.status === "DEPARTED" ? (
+                      <span className="ml-2 text-xs text-danger">
+                        no longer in this family
+                      </span>
+                    ) : null}
                   </span>
                   <span className="text-sm tabular-nums text-ink-soft">{span}</span>
                 </div>
                 <details className="mt-1">
                   <summary className="cursor-pointer text-xs text-ink-soft">
-                    Edit dates
+                    Edit
                   </summary>
-                  <form
-                    action={updateMember}
-                    className="mt-2 flex flex-wrap items-end gap-3"
-                  >
-                    <input type="hidden" name="id" value={m.id} />
-                    <label className="text-xs text-ink-soft">
-                      Born
-                      <input
-                        type="date"
-                        name="dateOfBirth"
-                        defaultValue={isoDate(m.dateOfBirth)}
-                        className="mt-1 block rounded border border-rule bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="text-xs text-ink-soft">
-                      Died
-                      <input
-                        type="date"
-                        name="dateOfDeath"
-                        defaultValue={isoDate(m.dateOfDeath)}
-                        className="mt-1 block rounded border border-rule bg-white px-2 py-1"
-                      />
-                    </label>
-                    <button
-                      type="submit"
-                      className="rounded bg-accent px-3 py-1 text-sm text-white hover:opacity-90"
+                  <div className="mt-2 space-y-3">
+                    <form
+                      action={updateMember}
+                      className="flex flex-wrap items-end gap-3"
                     >
-                      Save
-                    </button>
-                  </form>
+                      <input type="hidden" name="id" value={m.id} />
+                      <label className="text-xs text-ink-soft">
+                        Born
+                        <input
+                          type="date"
+                          name="dateOfBirth"
+                          defaultValue={isoDate(m.dateOfBirth)}
+                          className="mt-1 block rounded border border-rule bg-white px-2 py-1"
+                        />
+                      </label>
+                      <label className="text-xs text-ink-soft">
+                        Died
+                        <input
+                          type="date"
+                          name="dateOfDeath"
+                          defaultValue={isoDate(m.dateOfDeath)}
+                          className="mt-1 block rounded border border-rule bg-white px-2 py-1"
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        className="rounded bg-accent px-3 py-1 text-sm text-white hover:opacity-90"
+                      >
+                        Save
+                      </button>
+                    </form>
+                    {m.id !== stewardId ? (
+                      <form action={setMemberStatus} className="text-xs">
+                        <input type="hidden" name="id" value={m.id} />
+                        <input
+                          type="hidden"
+                          name="status"
+                          value={m.status === "DEPARTED" ? "ACTIVE" : "DEPARTED"}
+                        />
+                        <button
+                          type="submit"
+                          className="text-ink-soft hover:text-danger"
+                        >
+                          {m.status === "DEPARTED"
+                            ? "Bring back into the family"
+                            : "Mark as no longer in this family"}
+                        </button>
+                      </form>
+                    ) : null}
+                  </div>
                 </details>
               </li>
             );
@@ -291,6 +333,16 @@ export default async function FamilyPage({
                 <option value="SIBLING_OF">is a sibling of</option>
               </select>
               <select
+                name="parentKind"
+                defaultValue="BIOLOGICAL"
+                className="w-full rounded border border-rule bg-white px-3 py-2 text-sm"
+              >
+                <option value="BIOLOGICAL">— parent type: biological</option>
+                <option value="ADOPTIVE">— parent type: adoptive</option>
+                <option value="STEP">— parent type: step</option>
+                <option value="GUARDIAN">— parent type: guardian</option>
+              </select>
+              <select
                 name="toMemberId"
                 required
                 defaultValue=""
@@ -314,6 +366,8 @@ export default async function FamilyPage({
               <p className="text-sm text-ink-soft">
                 Only record <strong>parent</strong> links for lineage &mdash;
                 grandparent, cousin, and descendant are worked out automatically.
+                Adoptive parents count as full lineage; step and guardian are
+                held separately and can be excluded per release rule.
               </p>
             </form>
           )}
@@ -335,16 +389,35 @@ export default async function FamilyPage({
                     {RELATIONSHIP_VERB[r.type]}
                   </span>{" "}
                   {fullName(r.toMember)}
+                  {r.type === "PARENT_OF" && r.parentKind
+                    ? PARENT_KIND_LABEL[r.parentKind]
+                    : ""}
+                  {r.type === "SPOUSE_OF" && r.endedAt ? (
+                    <span className="text-ink-soft"> — marriage ended</span>
+                  ) : null}
                 </span>
-                <form action={deleteRelationship}>
-                  <input type="hidden" name="id" value={r.id} />
-                  <button
-                    type="submit"
-                    className="text-sm text-ink-soft hover:text-danger"
-                  >
-                    Remove
-                  </button>
-                </form>
+                <span className="flex items-center gap-3 text-sm">
+                  {r.type === "SPOUSE_OF" && !r.endedAt ? (
+                    <form action={endRelationship}>
+                      <input type="hidden" name="id" value={r.id} />
+                      <button
+                        type="submit"
+                        className="text-ink-soft hover:text-ink"
+                      >
+                        Mark ended
+                      </button>
+                    </form>
+                  ) : null}
+                  <form action={deleteRelationship}>
+                    <input type="hidden" name="id" value={r.id} />
+                    <button
+                      type="submit"
+                      className="text-ink-soft hover:text-danger"
+                    >
+                      Remove
+                    </button>
+                  </form>
+                </span>
               </li>
             ))}
           </ul>

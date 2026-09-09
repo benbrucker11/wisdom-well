@@ -28,7 +28,12 @@ import { selectVisibleEntries, type VisibilityReason } from "./visibility";
 // --- Snapshot loading ---------------------------------------------------
 
 function toEngineMember(m: Member): EngineMember {
-  return { id: m.id, dateOfBirth: m.dateOfBirth, dateOfDeath: m.dateOfDeath };
+  return {
+    id: m.id,
+    dateOfBirth: m.dateOfBirth,
+    dateOfDeath: m.dateOfDeath,
+    status: m.status,
+  };
 }
 
 function toEngineRule(r: ReleaseRule): EngineRule {
@@ -42,6 +47,7 @@ function toEngineRule(r: ReleaseRule): EngineRule {
     triggerAge: r.triggerAge,
     triggerDate: r.triggerDate,
     triggerEvent: r.triggerEvent,
+    includeStepDescendants: r.includeStepDescendants,
   };
 }
 
@@ -51,6 +57,8 @@ async function loadEdges(familyId: string): Promise<Edge[]> {
     fromMemberId: r.fromMemberId,
     toMemberId: r.toMemberId,
     type: r.type,
+    parentKind: r.parentKind,
+    endedAt: r.endedAt,
   }));
 }
 

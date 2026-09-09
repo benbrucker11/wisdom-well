@@ -18,6 +18,8 @@ async function loadFamilyEdges(familyId: string): Promise<Edge[]> {
     fromMemberId: r.fromMemberId,
     toMemberId: r.toMemberId,
     type: r.type,
+    parentKind: r.parentKind,
+    endedAt: r.endedAt,
   }));
 }
 
@@ -109,6 +111,8 @@ export async function describeFamilyFrom(focusMemberId: string): Promise<FamilyR
       fromMemberId: r.fromMemberId,
       toMemberId: r.toMemberId,
       type: r.type,
+      parentKind: r.parentKind,
+      endedAt: r.endedAt,
     })),
   );
 

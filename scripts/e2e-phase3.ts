@@ -44,6 +44,7 @@ async function main() {
   await pg.start();
   await pg.createDatabase("wisdom_well");
   process.env.DATABASE_URL = `postgresql://postgres:postgres@localhost:${PORT}/wisdom_well`;
+  process.env.DATABASE_DIRECT_URL = process.env.DATABASE_URL;
 
   console.log("Pushing schema…");
   execSync("npx prisma db push --skip-generate --accept-data-loss", {
@@ -56,10 +57,17 @@ async function main() {
   const {
     processFamilySuccession,
     addSuccessor,
+    acceptSuccession,
     declineTransfer,
     assumeStewardship,
     assessSteward,
+    getSuccessionView,
   } = await import("../lib/succession");
+
+  const nameLine = async (familyId: string, stewardId: string, heirId: string) => {
+    await addSuccessor({ familyId, actingMemberId: stewardId, memberId: heirId });
+    await acceptSuccession({ familyId, actingMemberId: heirId });
+  };
 
   try {
     // --- Build a family with a sealed entry --------------------------
@@ -129,11 +137,15 @@ async function main() {
     let outcome = await processFamilySuccession(family.id);
     check("inactive steward + no successors → NONE", outcome.action === "NONE");
 
-    // --- Name a successor ----------------------------------------
+    // --- Name a successor, but don't accept yet ------------------
     await addSuccessor({ familyId: family.id, actingMemberId: steward.id, memberId: heir.id });
+    check(
+      "a named-but-unaccepted successor does not trigger a handover",
+      (await processFamilySuccession(family.id)).action === "NONE",
+    );
+    await acceptSuccession({ familyId: family.id, actingMemberId: heir.id });
 
-    // Adding a successor reactivated the steward's lastSeenAt? No — only decline
-    // does. Re-set it stale for the test.
+    // Re-set the steward stale for the test.
     await prisma.user.update({
       where: { id: steward.userId! },
       data: { lastSeenAt: new Date(Date.now() - 400 * DAY) },
@@ -204,7 +216,7 @@ async function main() {
       data: { familyId: family2.id, givenName: "H2", familyName: "T", userId: h2user.id },
     });
     await prisma.family.update({ where: { id: family2.id }, data: { stewardMemberId: s2.id } });
-    await addSuccessor({ familyId: family2.id, actingMemberId: s2.id, memberId: h2.id });
+    await nameLine(family2.id, s2.id, h2.id);
     await prisma.user.update({
       where: { id: s2user.id },
       data: { lastSeenAt: new Date(Date.now() - 400 * DAY) },
@@ -242,6 +254,55 @@ async function main() {
     check(
       "declining bumps the steward's lastSeenAt so it doesn't immediately re-initiate",
       !(await processFamilySuccession(family2.id)).action.includes("INITIATE"),
+    );
+
+    // --- Policy fallback: eldest living descendant of the founder (spec §10) ---
+    const fam3 = await prisma.family.create({
+      data: { name: "Policy Test", successionPolicy: "NAMED_THEN_ELDEST_DESCENDANT" },
+    });
+    const mk3 = async (name: string, dob: string, withLogin = true) => {
+      const u = withLogin
+        ? await prisma.user.create({ data: { email: `${name}-p@test.local` } })
+        : null;
+      return prisma.member.create({
+        data: {
+          familyId: fam3.id,
+          givenName: name,
+          familyName: "P",
+          dateOfBirth: new Date(dob),
+          userId: u?.id ?? null,
+        },
+      });
+    };
+    const founder = await mk3("Founder", "1940-01-01");
+    const elderChild = await mk3("ElderChild", "1965-01-01");
+    const youngerChild = await mk3("YoungerChild", "1970-01-01");
+    await prisma.family.update({
+      where: { id: fam3.id },
+      data: { stewardMemberId: founder.id, founderMemberId: founder.id },
+    });
+    for (const c of [elderChild, youngerChild]) {
+      await prisma.relationship.create({
+        data: { familyId: fam3.id, fromMemberId: founder.id, toMemberId: c.id, type: "PARENT_OF" },
+      });
+    }
+    await prisma.user.update({
+      where: { id: founder.userId! },
+      data: { lastSeenAt: new Date(Date.now() - 400 * DAY) },
+    });
+
+    const view3 = await getSuccessionView(fam3.id);
+    check(
+      "with no named line, the view names the eldest descendant as the fallback",
+      view3.policyFallbackName === "ElderChild P",
+    );
+    const p3 = await processFamilySuccession(fam3.id);
+    check("the policy fallback triggers a handover with no named successors", p3.action === "INITIATE");
+    check(
+      "the handover goes to the eldest living descendant with an account",
+      (await prisma.stewardTransfer.findFirstOrThrow({
+        where: { familyId: fam3.id, status: "PENDING" },
+      })).toMemberId === elderChild.id,
     );
   } finally {
     await prisma.$disconnect();

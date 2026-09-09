@@ -13,8 +13,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Unpooled connection for `prisma migrate` (Neon, Supabase, etc.). Falls back
+  // to DATABASE_URL locally where there is no separate pooler.
+  directUrl = env("DATABASE_DIRECT_URL")
 }
 
 // --- Authentication ---------------------------------------------------------
@@ -58,20 +61,29 @@ model MagicLinkToken {
 
 // --- Family & tree ---------------------------------------------------------
 
+enum SuccessionPolicy {
+  NAMED_ONLY // succession only ever goes to an explicitly named, accepted successor
+  NAMED_THEN_ELDEST_DESCENDANT // fall back to the eldest living descendant of the founder with a login
+}
+
 model Family {
-  id                      String   @id @default(cuid())
+  id                      String           @id @default(cuid())
   name                    String
   // The Member responsible for this Family. Nullable only during creation
   // (the steward Member is created immediately after the Family row).
-  stewardMemberId         String?  @unique
-  stewardMember           Member?  @relation("FamilySteward", fields: [stewardMemberId], references: [id])
+  stewardMemberId         String?          @unique
+  stewardMember           Member?          @relation("FamilySteward", fields: [stewardMemberId], references: [id])
+  // The person who created the family — the root for policy-based succession
+  // walks (spec §10, "succession beyond the first hop"). Set once, at creation.
+  founderMemberId         String?
   // The steward is considered inactive once their account has not been seen for
   // this many days. Then succession begins.
-  inactivityThresholdDays Int      @default(365)
+  inactivityThresholdDays Int              @default(365)
   // Once succession begins, the steward has this many days to sign in or
   // decline before the first successor is promoted.
-  successionGraceDays     Int      @default(30)
-  createdAt               DateTime @default(now())
+  successionGraceDays     Int              @default(30)
+  successionPolicy        SuccessionPolicy @default(NAMED_THEN_ELDEST_DESCENDANT)
+  createdAt               DateTime         @default(now())
 
   members       Member[]          @relation("FamilyMembers")
   relationships Relationship[]
@@ -80,20 +92,31 @@ model Family {
   transfers     StewardTransfer[]
 }
 
+enum MembershipStatus {
+  ACTIVE
+  // The person has left this family (estrangement, a split). They keep entries
+  // already released to them — releases are irreversible (spec §4) — but drop
+  // out of future ROLE / IMMEDIATE / ALL_FAMILY releases and the steward's
+  // aggregate. An author can still target them explicitly with SPECIFIC_MEMBER.
+  DEPARTED
+}
+
 // A person in the family tree. May or may not have a login: children, deceased
 // ancestors, and not-yet-born descendants exist as records without a `user`.
 model Member {
-  id          String    @id @default(cuid())
+  id          String           @id @default(cuid())
   familyId    String
-  family      Family    @relation("FamilyMembers", fields: [familyId], references: [id], onDelete: Cascade)
+  family      Family           @relation("FamilyMembers", fields: [familyId], references: [id], onDelete: Cascade)
   givenName   String
   familyName  String
   // Required before any age-based release rule can evaluate against this person.
   dateOfBirth DateTime?
   dateOfDeath DateTime?
-  userId      String?   @unique
-  user        User?     @relation(fields: [userId], references: [id])
-  createdAt   DateTime  @default(now())
+  userId      String?          @unique
+  user        User?            @relation(fields: [userId], references: [id])
+  status      MembershipStatus @default(ACTIVE)
+  departedAt  DateTime?
+  createdAt   DateTime         @default(now())
 
   stewardOf         Family?        @relation("FamilySteward")
   relationshipsFrom Relationship[] @relation("RelationshipFrom")
@@ -117,6 +140,18 @@ enum RelationshipType {
   SIBLING_OF
 }
 
+// How a PARENT_OF edge came to be. Lineage traversal treats BIOLOGICAL and
+// ADOPTIVE identically — an adopted grandchild IS a grandchild. STEP is
+// included by default (the product's spirit is inclusive) but a ReleaseRule can
+// opt out per-rule. GUARDIAN is a caregiving fact, not heritable lineage, and
+// is never followed for descendant resolution.
+enum ParentKind {
+  BIOLOGICAL
+  ADOPTIVE
+  STEP
+  GUARDIAN
+}
+
 // An asserted relationship between two members.
 //
 // PARENT_OF is the single source of truth for lineage. Grandparent,
@@ -124,9 +159,6 @@ enum RelationshipType {
 // by graph traversal in lib/relationships. SPOUSE_OF / SIBLING_OF are stored as
 // user-asserted facts; traversal treats SPOUSE_OF as symmetric and does not use
 // SIBLING_OF for lineage (siblings are inferred from shared parents).
-//
-// KNOWN OPEN QUESTION (spec §10): getDescendants follows PARENT_OF only, so
-// adoption and step-relationships are not yet modelled.
 model Relationship {
   id           String           @id @default(cuid())
   familyId     String
@@ -136,6 +168,11 @@ model Relationship {
   toMemberId   String
   toMember     Member           @relation("RelationshipTo", fields: [toMemberId], references: [id], onDelete: Cascade)
   type         RelationshipType
+  // Set for PARENT_OF edges; null is read as BIOLOGICAL.
+  parentKind   ParentKind?
+  // Set for SPOUSE_OF edges when the marriage has ended (divorce). Lineage is
+  // unaffected; a former spouse's relatives are no longer counted as in-laws.
+  endedAt      DateTime?
   createdAt    DateTime         @default(now())
 
   @@unique([fromMemberId, toMemberId, type])
@@ -255,6 +292,11 @@ model ReleaseRule {
   triggerEvent      ReleaseTriggerEvent?
   triggerEventLabel String? // for CUSTOM
 
+  // For descendant-targeted ROLE rules: whether STEP parent edges count when
+  // resolving who is a "descendant". Default true — the product's spirit is
+  // inclusive; the author can turn it off for a specific rule.
+  includeStepDescendants Boolean @default(true)
+
   createdAt DateTime @default(now())
 
   releases      Release[]
@@ -304,20 +346,20 @@ model EventConfirmation {
 // --- Stewardship & succession (Phase 3) ---------------------------------
 
 // An ordered line of succession for a family. Only the current steward manages
-// it. `position` 1 is the first successor. A successor must have a login (a
-// linked User) so they can actually act as steward.
-//
-// KNOWN OPEN QUESTION (spec §10): this models one clean transfer. Succession
-// five generations out, with branching families, is unresolved — single-family
-// is assumed for now.
+// it. `position` 1 is the first successor. A successor must have a login AND
+// have accepted the role (`acceptedAt`) before the engine will promote them —
+// you don't hand a family to someone who never agreed to it. When the accepted
+// named list is exhausted, Family.successionPolicy decides whether to fall back
+// to the eldest living descendant of the founder.
 model Successor {
-  id        String   @id @default(cuid())
-  familyId  String
-  family    Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  memberId  String   @unique
-  member    Member   @relation("SuccessorMember", fields: [memberId], references: [id], onDelete: Cascade)
-  position  Int
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  familyId   String
+  family     Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  memberId   String    @unique
+  member     Member    @relation("SuccessorMember", fields: [memberId], references: [id], onDelete: Cascade)
+  position   Int
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   @@unique([familyId, position])
   @@index([familyId])

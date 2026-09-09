@@ -12,6 +12,16 @@ four phases (see `README.md`). Next.js App Router + TypeScript + Postgres/Prisma
   + `visibility.ts`, `lib/succession/logic.ts`. Their `index.ts` siblings load a
   snapshot, call the pure function, and persist the result. Keep it that way —
   don't put rule logic in route handlers or server actions.
+- **Lineage rules** (spec §10): `Relationship.parentKind` — BIOLOGICAL +
+  ADOPTIVE are always lineage, STEP is opt-out per rule
+  (`ReleaseRule.includeStepDescendants`), GUARDIAN is never lineage.
+  `Member.status = DEPARTED` and `Relationship.endedAt` (divorce) are handled in
+  `buildGraph` / `candidateRecipientIds`. `Family.successionPolicy` drives the
+  eldest-descendant fallback in `lib/succession/index.ts`.
+- **Storage** (`lib/storage.ts`): local disk by default; set `S3_BUCKET` (+ R2
+  creds) to switch to S3-compatible. Files are always served through
+  `/api/media/<key>`, which re-checks visibility — never expose the bucket
+  publicly.
 - **Every entry read goes through `visibleEntriesFor` / `visibleEntry`**
   (`lib/release/index.ts`). No page or route queries the `Entry` table
   directly. A gated entry must be *absent*, not hidden-with-a-placeholder.

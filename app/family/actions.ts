@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { RelationshipType } from "@prisma/client";
 import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -74,12 +75,41 @@ export async function updateMember(formData: FormData) {
   revalidatePath("/family");
 }
 
+const PARENT_KINDS = new Set(["BIOLOGICAL", "ADOPTIVE", "STEP", "GUARDIAN"]);
+
+export async function setMemberStatus(formData: FormData) {
+  const { member } = await requireMember();
+  const id = str(formData, "id");
+  const status = str(formData, "status") === "DEPARTED" ? "DEPARTED" : "ACTIVE";
+
+  const target = await prisma.member.findFirst({
+    where: { id, familyId: member.familyId },
+    select: { id: true, userId: true },
+  });
+  if (!target) return;
+  // A family always needs its steward present.
+  if (status === "DEPARTED" && member.family.stewardMemberId === id) {
+    redirect("/family?error=steward-departed");
+  }
+
+  await prisma.member.update({
+    where: { id },
+    data: {
+      status,
+      departedAt: status === "DEPARTED" ? new Date() : null,
+    },
+  });
+  await reevaluate(member.familyId);
+  revalidatePath("/family");
+}
+
 export async function addRelationship(formData: FormData) {
   const { member } = await requireMember();
 
   const fromMemberId = str(formData, "fromMemberId");
   const toMemberId = str(formData, "toMemberId");
   const type = str(formData, "type");
+  const parentKindRaw = str(formData, "parentKind");
 
   if (!fromMemberId || !toMemberId || fromMemberId === toMemberId) return;
   if (!RELATIONSHIP_TYPES.has(type)) return;
@@ -91,6 +121,13 @@ export async function addRelationship(formData: FormData) {
   });
   if (endpoints.length !== 2) return;
 
+  const parentKind =
+    type === "PARENT_OF" && PARENT_KINDS.has(parentKindRaw)
+      ? (parentKindRaw as "BIOLOGICAL" | "ADOPTIVE" | "STEP" | "GUARDIAN")
+      : type === "PARENT_OF"
+        ? "BIOLOGICAL"
+        : null;
+
   // Unique constraint on (from, to, type) makes re-adding a no-op.
   await prisma.relationship
     .create({
@@ -99,10 +136,24 @@ export async function addRelationship(formData: FormData) {
         fromMemberId,
         toMemberId,
         type: type as RelationshipType,
+        parentKind,
       },
     })
     .catch(() => {});
 
+  await reevaluate(member.familyId);
+  revalidatePath("/family");
+}
+
+/** Mark a marriage as ended (divorce). Lineage is unaffected. */
+export async function endRelationship(formData: FormData) {
+  const { member } = await requireMember();
+  const id = str(formData, "id");
+  if (!id) return;
+  await prisma.relationship.updateMany({
+    where: { id, familyId: member.familyId, type: "SPOUSE_OF" },
+    data: { endedAt: new Date() },
+  });
   await reevaluate(member.familyId);
   revalidatePath("/family");
 }

@@ -165,3 +165,65 @@ describe("resolveRelationship", () => {
     expect(resolveRelationship(g, "andrzej", "lena")).toBe("grandchild");
   });
 });
+
+describe("parent kinds (spec §10)", () => {
+  const kin = (
+    from: string,
+    to: string,
+    parentKind: "BIOLOGICAL" | "ADOPTIVE" | "STEP" | "GUARDIAN",
+  ): Edge => ({ fromMemberId: from, toMemberId: to, type: "PARENT_OF", parentKind });
+
+  const edges: Edge[] = [
+    kin("gp", "parent", "BIOLOGICAL"),
+    kin("parent", "bio", "BIOLOGICAL"),
+    kin("parent", "adopted", "ADOPTIVE"),
+    kin("parent", "step", "STEP"),
+    kin("parent", "ward", "GUARDIAN"),
+  ];
+
+  it("counts biological and adoptive children as lineage, always", () => {
+    const g = buildGraph(edges);
+    expect(getDescendants(g, "gp", 2).map((d) => d.memberId).sort()).toEqual([
+      "adopted",
+      "bio",
+      "parent",
+      "step",
+    ]);
+  });
+
+  it("drops step children when includeStep is false", () => {
+    const g = buildGraph(edges, { includeStep: false });
+    expect(getDescendants(g, "gp", 2).map((d) => d.memberId).sort()).toEqual([
+      "adopted",
+      "bio",
+      "parent",
+    ]);
+  });
+
+  it("never follows guardian edges for lineage", () => {
+    expect(
+      getDescendants(buildGraph(edges), "gp", 5).map((d) => d.memberId),
+    ).not.toContain("ward");
+  });
+
+  it("an absent parentKind reads as biological", () => {
+    const g = buildGraph([{ fromMemberId: "a", toMemberId: "b", type: "PARENT_OF" }]);
+    expect(getDescendants(g, "a", 1).map((d) => d.memberId)).toEqual(["b"]);
+  });
+});
+
+describe("ended marriages", () => {
+  it("a divorced spouse is no longer a 'spouse' and their kin are no longer in-laws", () => {
+    const g = buildGraph([
+      {
+        fromMemberId: "a",
+        toMemberId: "b",
+        type: "SPOUSE_OF",
+        endedAt: new Date("2020-01-01"),
+      },
+      { fromMemberId: "bparent", toMemberId: "b", type: "PARENT_OF" },
+    ]);
+    expect(resolveRelationship(g, "a", "b")).toBe("unrelated");
+    expect(resolveRelationship(g, "a", "bparent")).toBe("unrelated");
+  });
+});

@@ -26,11 +26,9 @@ Built in the phases described in the product brief.
 `lib/relationships/graph.ts` is **pure** — it takes asserted edges and derives
 grandparent / grandchild / aunt / cousin / descendant / in-law by traversal,
 never storing them. `PARENT_OF` is the only source of truth for lineage;
-`SPOUSE_OF` is symmetric; siblings are inferred from shared parents.
-
-**Known open question (brief §10):** `getDescendants` follows `PARENT_OF` only,
-so adoption and step-relationships are not modelled. Flagged in the schema and
-`graph.ts`.
+`SPOUSE_OF` is symmetric (and dropped once `endedAt` is set); siblings are
+inferred from shared parents. `PARENT_OF` edges carry a `parentKind` — see
+"Open issues from §10" below.
 
 ## Phase 2 — Entries & the release engine
 
@@ -122,9 +120,23 @@ the incoming steward gains no access to sealed entries — only the content-free
 aggregate view. `scripts/e2e-phase3.ts` asserts the new steward's visible
 entries are byte-for-byte unchanged by the transfer.
 
-**Known open question (brief §10):** this handles one clean transfer.
-Succession several generations out with branching families is unresolved;
-single-family is assumed.
+**Succession beyond the first hop (brief §10):** a named successor must have a
+login **and accept** the role (`Successor.acceptedAt`) before the engine will
+promote them. When the accepted line is empty, `Family.successionPolicy`
+decides: `NAMED_ONLY` stops there; `NAMED_THEN_ELDEST_DESCENDANT` (the default)
+falls back to the eldest living descendant of the founder with an account.
+Because it is recomputed from scratch every run, it recurses naturally down the
+generations. Branch-level stewardship (a member who stewards only their
+subtree) is still a v2 model change.
+
+## Open issues from §10 — now addressed
+
+| §10 item | What's built |
+| --- | --- |
+| Succession beyond the first hop | Successor acceptance + `SuccessionPolicy` eldest-descendant fallback (above) |
+| Family splits: divorce, estrangement, half-siblings | Half-siblings already worked (shared parent). `Relationship.endedAt` marks a marriage ended — lineage unaffected, former in-laws drop. `Member.status = DEPARTED` removes someone from future ROLE / IMMEDIATE / ALL_FAMILY releases and the aggregate; an author can still reach them with `SPECIFIC_MEMBER`. Multi-family membership is still deferred. |
+| Adoption & step-relationships | `Relationship.parentKind` (`BIOLOGICAL` / `ADOPTIVE` / `STEP` / `GUARDIAN`). Biological and adoptive count as full lineage always; STEP is included by default and can be turned off per rule (`ReleaseRule.includeStepDescendants`); GUARDIAN is never followed for descent. |
+| Data durability / export | `GET /api/family/export` — a ZIP of the tree, the line of succession, and every entry the requester can see (via `visibleEntriesFor`) with the original media and audio. Plain JSON + files, no proprietary format. `lib/export/index.ts`. |
 
 ## Phase 4 — Voice interview
 
@@ -170,6 +182,9 @@ tight?"), free to skip, free to wander off topic, no progress bar.
 ---
 
 ## Running it
+
+> **Deploying the prototype** (Vercel + Neon + Cloudflare R2 + Resend, all
+> free-tier): see [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ### 1. Prerequisites
 
@@ -269,10 +284,13 @@ audio is byte-for-byte retrievable — with nothing auto-published.
 
 Everything below has been run on this codebase:
 
-- `npm test` — 67 pure unit tests (relationship graph, release engine,
-  visibility, succession logic, prompt library, reconciliation fallback)
-- `npm run e2e` — release engine (17) + succession (21) against real Postgres;
-  `npm run e2e:phase4` — voice pipeline (12) against the real AssemblyAI API
+- `npm test` — 78 pure unit tests (relationship graph incl. parent-kinds /
+  divorce, release engine incl. adoption / step / departed members, visibility,
+  succession logic, prompt library, reconciliation fallback)
+- `npm run e2e` — release engine (17) + succession incl. acceptance & the
+  eldest-descendant policy fallback (25) + data export (11) against real
+  Postgres; `npm run e2e:phase4` — voice pipeline (12) against the real
+  AssemblyAI API
 - `npx tsc --noEmit` and `npx next build` — clean
 - manual click-through of every phase, including: record against "What did your
   mother do when money was tight?" → transcript appears beside the draft →

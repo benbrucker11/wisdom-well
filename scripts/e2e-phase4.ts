@@ -79,6 +79,7 @@ async function main() {
   await pg.start();
   await pg.createDatabase("wisdom_well");
   process.env.DATABASE_URL = `postgresql://postgres:postgres@localhost:${PORT}/wisdom_well`;
+  process.env.DATABASE_DIRECT_URL = process.env.DATABASE_URL;
 
   console.log("Pushing schema…");
   execSync("npx prisma db push --skip-generate --accept-data-loss", {

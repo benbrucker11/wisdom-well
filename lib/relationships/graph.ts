@@ -9,17 +9,38 @@
  */
 
 export type RelType = "PARENT_OF" | "SPOUSE_OF" | "SIBLING_OF";
+export type ParentKind = "BIOLOGICAL" | "ADOPTIVE" | "STEP" | "GUARDIAN";
 
 export interface Edge {
   fromMemberId: string;
   toMemberId: string;
   type: RelType;
+  /** For PARENT_OF edges. Absent is read as BIOLOGICAL. */
+  parentKind?: ParentKind | null;
+  /** For SPOUSE_OF edges. Set once the marriage has ended (divorce). */
+  endedAt?: Date | null;
 }
 
 export interface RelationGraph {
   parentsOf(id: string): string[];
   childrenOf(id: string): string[];
   spousesOf(id: string): string[];
+}
+
+export interface GraphOptions {
+  /**
+   * Whether STEP parent edges count as lineage. Default true — the product's
+   * spirit is inclusive; a ReleaseRule may build a stricter graph.
+   */
+  includeStep?: boolean;
+}
+
+/** Does this PARENT_OF edge carry heritable lineage under these options? */
+function isLineage(edge: Edge, includeStep: boolean): boolean {
+  const kind = edge.parentKind ?? "BIOLOGICAL";
+  if (kind === "GUARDIAN") return false; // a caregiving fact, never lineage
+  if (kind === "STEP") return includeStep;
+  return true; // BIOLOGICAL, ADOPTIVE
 }
 
 function addTo(map: Map<string, Set<string>>, key: string, value: string): void {
@@ -34,12 +55,17 @@ function addTo(map: Map<string, Set<string>>, key: string, value: string): void 
 /**
  * Build an adjacency view over a family's edges.
  *
- * - PARENT_OF is directional: `from` is the parent, `to` is the child.
+ * - PARENT_OF is directional: `from` is the parent, `to` is the child. Only
+ *   edges that carry lineage are followed (BIOLOGICAL / ADOPTIVE always; STEP
+ *   per `opts.includeStep`, default true; GUARDIAN never).
  * - SPOUSE_OF is treated as symmetric regardless of which way it was stored.
+ *   Ended marriages are dropped, so "spouse" and in-law derivations reflect the
+ *   present.
  * - SIBLING_OF is deliberately ignored here: sibling relationships are derived
  *   from shared parents so the tree has a single source of truth for lineage.
  */
-export function buildGraph(edges: Edge[]): RelationGraph {
+export function buildGraph(edges: Edge[], opts: GraphOptions = {}): RelationGraph {
+  const includeStep = opts.includeStep ?? true;
   const parents = new Map<string, Set<string>>();
   const children = new Map<string, Set<string>>();
   const spouses = new Map<string, Set<string>>();
@@ -47,10 +73,12 @@ export function buildGraph(edges: Edge[]): RelationGraph {
   for (const edge of edges) {
     switch (edge.type) {
       case "PARENT_OF":
+        if (!isLineage(edge, includeStep)) break;
         addTo(parents, edge.toMemberId, edge.fromMemberId);
         addTo(children, edge.fromMemberId, edge.toMemberId);
         break;
       case "SPOUSE_OF":
+        if (edge.endedAt) break;
         addTo(spouses, edge.fromMemberId, edge.toMemberId);
         addTo(spouses, edge.toMemberId, edge.fromMemberId);
         break;

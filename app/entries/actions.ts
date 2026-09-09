@@ -206,6 +206,8 @@ export async function addRule(formData: FormData) {
     const targetRole = str(formData, "targetRole");
     if (!TARGET_ROLES.has(targetRole)) redirect(`/entries/${entry.id}?error=rule`);
     data.targetRole = targetRole as ReleaseTargetRole;
+    // Only meaningful for descendant roles; harmless otherwise. Checkbox absent = off.
+    data.includeStepDescendants = str(formData, "includeStepDescendants") === "on";
   }
 
   // --- trigger ---

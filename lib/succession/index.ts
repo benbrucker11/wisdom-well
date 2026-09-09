@@ -6,9 +6,10 @@
  * visibility into sealed entries — `visibleEntriesFor` is untouched by anything
  * here. See scripts/e2e-phase3.ts for the proof.
  */
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Member, Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../db";
 import { sendEmail } from "../mail";
+import { buildGraph, getDescendants } from "../relationships/graph";
 import {
   decideSuccession,
   isStewardInactive,
@@ -16,6 +17,60 @@ import {
 } from "./logic";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
+
+/**
+ * The eldest living descendant of the family's founder who has a login and is
+ * still an active member — the policy fallback when the named line is empty
+ * (spec §10). Recurses naturally: it's recomputed from scratch every time.
+ */
+async function resolvePolicyCandidate(
+  familyId: string,
+  excludeMemberIds: string[],
+): Promise<Member | null> {
+  const family = await prisma.family.findUniqueOrThrow({ where: { id: familyId } });
+  if (
+    family.successionPolicy !== "NAMED_THEN_ELDEST_DESCENDANT" ||
+    !family.founderMemberId
+  ) {
+    return null;
+  }
+
+  const [members, relationships] = await Promise.all([
+    prisma.member.findMany({ where: { familyId } }),
+    prisma.relationship.findMany({ where: { familyId } }),
+  ]);
+
+  const graph = buildGraph(
+    relationships.map((r) => ({
+      fromMemberId: r.fromMemberId,
+      toMemberId: r.toMemberId,
+      type: r.type,
+      parentKind: r.parentKind,
+      endedAt: r.endedAt,
+    })),
+  );
+  const descendantIds = new Set(
+    getDescendants(graph, family.founderMemberId, 100).map((d) => d.memberId),
+  );
+  const exclude = new Set([family.founderMemberId, ...excludeMemberIds]);
+
+  const eligible = members
+    .filter(
+      (m) =>
+        descendantIds.has(m.id) &&
+        !exclude.has(m.id) &&
+        m.userId != null &&
+        m.dateOfDeath == null &&
+        m.status === "ACTIVE",
+    )
+    .sort((a, b) => {
+      const at = a.dateOfBirth?.getTime() ?? Number.POSITIVE_INFINITY;
+      const bt = b.dateOfBirth?.getTime() ?? Number.POSITIVE_INFINITY;
+      return at - bt; // eldest first
+    });
+
+  return eligible[0] ?? null;
+}
 
 // --- Successor list management --------------------------------------
 
@@ -27,8 +82,15 @@ async function orderedSuccessorMemberIds(tx: Tx, familyId: string): Promise<stri
   return rows.map((r) => r.memberId);
 }
 
-/** Rewrite the successor list to exactly `memberIds`, positions 1..n. */
+/**
+ * Rewrite the successor list to exactly `memberIds`, positions 1..n, preserving
+ * each person's `acceptedAt` (reordering must not un-accept anyone).
+ */
 async function rewriteSuccessors(tx: Tx, familyId: string, memberIds: string[]) {
+  const existing = await tx.successor.findMany({ where: { familyId } });
+  const acceptedByMember = new Map(
+    existing.map((s) => [s.memberId, s.acceptedAt]),
+  );
   await tx.successor.deleteMany({ where: { familyId } });
   if (memberIds.length === 0) return;
   await tx.successor.createMany({
@@ -36,6 +98,7 @@ async function rewriteSuccessors(tx: Tx, familyId: string, memberIds: string[]) 
       familyId,
       memberId,
       position: i + 1,
+      acceptedAt: acceptedByMember.get(memberId) ?? null,
     })),
   });
 }
@@ -72,6 +135,49 @@ export async function addSuccessor(input: {
   if (current.includes(input.memberId)) return;
   await rewriteSuccessors(prisma, input.familyId, [...current, input.memberId]);
   await maybeSupersede(input.familyId);
+
+  const [invitee, family] = await Promise.all([
+    prisma.member.findUnique({
+      where: { id: input.memberId },
+      include: { user: true },
+    }),
+    prisma.family.findUniqueOrThrow({ where: { id: input.familyId } }),
+  ]);
+  if (invitee?.user?.email) {
+    await sendEmail({
+      to: invitee.user.email,
+      subject: `Wisdom Well: you've been named a successor for ${family.name}`,
+      text: `The steward of ${family.name} has named you in the line of succession. Open the app and go to Stewardship to accept — you won't be promoted unless you do. Accepting shares nothing sealed; it means you're willing to look after the family if the current steward becomes inactive.`,
+    });
+  }
+}
+
+/** A named successor confirms they'll take the role. */
+export async function acceptSuccession(input: {
+  familyId: string;
+  actingMemberId: string;
+}): Promise<void> {
+  const row = await prisma.successor.findFirst({
+    where: { familyId: input.familyId, memberId: input.actingMemberId },
+  });
+  if (!row) throw new Error("you have not been named as a successor");
+  if (row.acceptedAt) return;
+  await prisma.successor.update({
+    where: { id: row.id },
+    data: { acceptedAt: new Date() },
+  });
+}
+
+export async function setSuccessionPolicy(input: {
+  familyId: string;
+  actingMemberId: string;
+  policy: "NAMED_ONLY" | "NAMED_THEN_ELDEST_DESCENDANT";
+}): Promise<void> {
+  await assertActingSteward(input.familyId, input.actingMemberId);
+  await prisma.family.update({
+    where: { id: input.familyId },
+    data: { successionPolicy: input.policy },
+  });
 }
 
 export async function removeSuccessor(input: {
@@ -165,13 +271,17 @@ export async function assessSteward(familyId: string): Promise<StewardAssessment
 
 export interface SuccessionView {
   assessment: StewardAssessment;
+  policy: "NAMED_ONLY" | "NAMED_THEN_ELDEST_DESCENDANT";
   successors: {
     id: string;
     memberId: string;
     name: string;
     position: number;
     hasLogin: boolean;
+    accepted: boolean;
   }[];
+  /** The eldest-descendant fallback, if the policy allows one and one exists. */
+  policyFallbackName: string | null;
   pendingTransfer: {
     id: string;
     toMemberId: string;
@@ -189,7 +299,8 @@ export interface SuccessionView {
 }
 
 export async function getSuccessionView(familyId: string): Promise<SuccessionView> {
-  const [assessment, successorRows, pending, past] = await Promise.all([
+  const [family, assessment, successorRows, pending, past] = await Promise.all([
+    prisma.family.findUniqueOrThrow({ where: { id: familyId } }),
     assessSteward(familyId),
     prisma.successor.findMany({
       where: { familyId },
@@ -208,14 +319,29 @@ export async function getSuccessionView(familyId: string): Promise<SuccessionVie
     }),
   ]);
 
+  const anyAccepted = successorRows.some(
+    (s) => s.member.userId != null && s.acceptedAt != null,
+  );
+  const fallback = anyAccepted
+    ? null
+    : await resolvePolicyCandidate(
+        familyId,
+        family.stewardMemberId ? [family.stewardMemberId] : [],
+      );
+
   return {
     assessment,
+    policy: family.successionPolicy,
+    policyFallbackName: fallback
+      ? `${fallback.givenName} ${fallback.familyName}`.trim()
+      : null,
     successors: successorRows.map((s) => ({
       id: s.id,
       memberId: s.memberId,
       name: `${s.member.givenName} ${s.member.familyName}`.trim(),
       position: s.position,
       hasLogin: s.member.userId != null,
+      accepted: s.acceptedAt != null,
     })),
     pendingTransfer: pending
       ? {
@@ -268,9 +394,18 @@ export async function processFamilySuccession(
     }),
   ]);
 
-  const validSuccessors = successorRows
-    .filter((s) => s.member.userId != null)
+  // A named successor counts only once they have a login AND have accepted.
+  let validSuccessors = successorRows
+    .filter((s) => s.member.userId != null && s.acceptedAt != null)
     .map((s) => ({ memberId: s.memberId, position: s.position }));
+
+  // If the named line is empty, fall back to the policy candidate.
+  if (validSuccessors.length === 0 && family.stewardMemberId) {
+    const fallback = await resolvePolicyCandidate(familyId, [
+      family.stewardMemberId,
+    ]);
+    if (fallback) validSuccessors = [{ memberId: fallback.id, position: 1 }];
+  }
 
   const state: SuccessionState = {
     now,

@@ -34,11 +34,11 @@ const NOW = new Date("2026-01-01T00:00:00Z");
  */
 function baseMembers(): EngineMember[] {
   return [
-    { id: "gp", dateOfBirth: new Date("1945-03-02"), dateOfDeath: null },
-    { id: "dad", dateOfBirth: new Date("1972-08-10"), dateOfDeath: null },
-    { id: "mom", dateOfBirth: new Date("1974-01-05"), dateOfDeath: null },
-    { id: "sarah", dateOfBirth: new Date("2010-06-01"), dateOfDeath: null }, // 15 on NOW
-    { id: "son", dateOfBirth: new Date("2005-01-01"), dateOfDeath: null }, // 21 on NOW
+    { id: "gp", dateOfBirth: new Date("1945-03-02"), dateOfDeath: null, status: "ACTIVE" },
+    { id: "dad", dateOfBirth: new Date("1972-08-10"), dateOfDeath: null, status: "ACTIVE" },
+    { id: "mom", dateOfBirth: new Date("1974-01-05"), dateOfDeath: null, status: "ACTIVE" },
+    { id: "sarah", dateOfBirth: new Date("2010-06-01"), dateOfDeath: null, status: "ACTIVE" }, // 15 on NOW
+    { id: "son", dateOfBirth: new Date("2005-01-01"), dateOfDeath: null, status: "ACTIVE" }, // 21 on NOW
   ];
 }
 const baseEdges: Edge[] = [
@@ -78,7 +78,19 @@ const rule = (r: Partial<EngineRule> & { id: string; entryId: string }): EngineR
   triggerAge: null,
   triggerDate: null,
   triggerEvent: null,
+  includeStepDescendants: true,
   ...r,
+});
+
+const mem = (
+  id: string,
+  over: Partial<EngineMember> = {},
+): EngineMember => ({
+  id,
+  dateOfBirth: new Date("2005-01-01"),
+  dateOfDeath: null,
+  status: "ACTIVE",
+  ...over,
 });
 
 const recipients = (input: EngineInput) =>
@@ -190,9 +202,9 @@ describe("role rules and recipients who did not exist when the rule was written"
     const before = makeInput({
       rules: [r],
       members: [
-        { id: "gp", dateOfBirth: new Date("1945-03-02"), dateOfDeath: null },
-        { id: "dad", dateOfBirth: new Date("1972-08-10"), dateOfDeath: null },
-        { id: "sarah", dateOfBirth: new Date("2010-06-01"), dateOfDeath: null },
+        { id: "gp", dateOfBirth: new Date("1945-03-02"), dateOfDeath: null, status: "ACTIVE" },
+        { id: "dad", dateOfBirth: new Date("1972-08-10"), dateOfDeath: null, status: "ACTIVE" },
+        { id: "sarah", dateOfBirth: new Date("2010-06-01"), dateOfDeath: null, status: "ACTIVE" },
       ],
       edges: [parent("gp", "dad"), parent("dad", "sarah")],
     });
@@ -202,10 +214,10 @@ describe("role rules and recipients who did not exist when the rule was written"
     const after = makeInput({
       rules: [r],
       members: [
-        { id: "gp", dateOfBirth: new Date("1945-03-02"), dateOfDeath: null },
-        { id: "dad", dateOfBirth: new Date("1972-08-10"), dateOfDeath: null },
-        { id: "sarah", dateOfBirth: new Date("2010-06-01"), dateOfDeath: null },
-        { id: "newgrandchild", dateOfBirth: new Date("2005-05-05"), dateOfDeath: null },
+        { id: "gp", dateOfBirth: new Date("1945-03-02"), dateOfDeath: null, status: "ACTIVE" },
+        { id: "dad", dateOfBirth: new Date("1972-08-10"), dateOfDeath: null, status: "ACTIVE" },
+        { id: "sarah", dateOfBirth: new Date("2010-06-01"), dateOfDeath: null, status: "ACTIVE" },
+        { id: "newgrandchild", dateOfBirth: new Date("2005-05-05"), dateOfDeath: null, status: "ACTIVE" },
       ],
       edges: [
         parent("gp", "dad"),
@@ -226,8 +238,8 @@ describe("role rules and recipients who did not exist when the rule was written"
 
 describe("age triggers require a date of birth", () => {
   const noDob: EngineMember[] = [
-    { id: "gp", dateOfBirth: new Date("1945-03-02"), dateOfDeath: null },
-    { id: "kid", dateOfBirth: null, dateOfDeath: null },
+    { id: "gp", dateOfBirth: new Date("1945-03-02"), dateOfDeath: null, status: "ACTIVE" },
+    { id: "kid", dateOfBirth: null, dateOfDeath: null, status: "ACTIVE" },
   ];
   const r = rule({
     id: "r",
@@ -351,5 +363,130 @@ describe("DRAFT entries are never passed to the engine", () => {
       entries: [],
     });
     expect(evaluateReleases(input)).toEqual([]);
+  });
+});
+
+describe("adoption and step-relationships (spec §10)", () => {
+  const kinEdge = (
+    from: string,
+    to: string,
+    parentKind: "BIOLOGICAL" | "ADOPTIVE" | "STEP" | "GUARDIAN",
+  ): Edge => ({ fromMemberId: from, toMemberId: to, type: "PARENT_OF", parentKind });
+
+  //   gp
+  //   ├── dad ── adoptedKid (ADOPTIVE)
+  //   └── aunt ── stepKid (STEP), ward (GUARDIAN)
+  const members = [
+    mem("gp", { dateOfBirth: new Date("1945-01-01") }),
+    mem("dad", { dateOfBirth: new Date("1972-01-01") }),
+    mem("aunt", { dateOfBirth: new Date("1975-01-01") }),
+    mem("adoptedKid", { dateOfBirth: new Date("2000-01-01") }),
+    mem("stepKid", { dateOfBirth: new Date("2001-01-01") }),
+    mem("ward", { dateOfBirth: new Date("2002-01-01") }),
+  ];
+  const edges: Edge[] = [
+    kinEdge("gp", "dad", "BIOLOGICAL"),
+    kinEdge("gp", "aunt", "BIOLOGICAL"),
+    kinEdge("dad", "adoptedKid", "ADOPTIVE"),
+    kinEdge("aunt", "stepKid", "STEP"),
+    kinEdge("aunt", "ward", "GUARDIAN"),
+  ];
+
+  it("an adopted grandchild is a grandchild", () => {
+    const r = rule({
+      id: "r",
+      entryId: "e",
+      targetType: "ROLE",
+      targetRole: "GRANDCHILD",
+    });
+    expect(recipients(makeInput({ rules: [r], members, edges }))).toEqual([
+      "adoptedKid",
+      "stepKid",
+    ]);
+  });
+
+  it("a step-grandchild is excluded when the rule opts out", () => {
+    const r = rule({
+      id: "r",
+      entryId: "e",
+      targetType: "ROLE",
+      targetRole: "GRANDCHILD",
+      includeStepDescendants: false,
+    });
+    expect(recipients(makeInput({ rules: [r], members, edges }))).toEqual([
+      "adoptedKid",
+    ]);
+  });
+
+  it("a guardian's ward is never counted as a descendant", () => {
+    const r = rule({
+      id: "r",
+      entryId: "e",
+      targetType: "ROLE",
+      targetRole: "ANY_DESCENDANT",
+    });
+    const got = recipients(makeInput({ rules: [r], members, edges }));
+    expect(got).not.toContain("ward");
+    expect(got).toEqual(["adoptedKid", "aunt", "dad", "stepKid"]);
+  });
+});
+
+describe("departed members (spec §10, family splits)", () => {
+  it("drop out of ROLE / IMMEDIATE / ALL_FAMILY targeting", () => {
+    const members = baseMembers().map((m) =>
+      m.id === "sarah" ? { ...m, status: "DEPARTED" as const } : m,
+    );
+    const immediate = rule({ id: "r", entryId: "e", targetType: "IMMEDIATE" });
+    expect(recipients(makeInput({ rules: [immediate], members }))).toEqual([
+      "dad",
+      "gp",
+      "mom",
+      "son",
+    ]);
+
+    const anyDesc = rule({
+      id: "r2",
+      entryId: "e2",
+      targetType: "ROLE",
+      targetRole: "ANY_DESCENDANT",
+    });
+    expect(recipients(makeInput({ rules: [anyDesc], members }))).toEqual([
+      "dad",
+      "son",
+    ]);
+  });
+
+  it("can still be reached by an explicit SPECIFIC_MEMBER rule", () => {
+    const members = baseMembers().map((m) =>
+      m.id === "sarah" ? { ...m, status: "DEPARTED" as const } : m,
+    );
+    const r = rule({
+      id: "r",
+      entryId: "e",
+      targetType: "SPECIFIC_MEMBER",
+      targetMemberId: "sarah",
+    });
+    expect(recipients(makeInput({ rules: [r], members }))).toEqual(["sarah"]);
+  });
+});
+
+describe("divorce (spec §10)", () => {
+  it("an ended marriage does not change lineage", () => {
+    const edges: Edge[] = [
+      { fromMemberId: "dad", toMemberId: "mom", type: "SPOUSE_OF", endedAt: new Date("2020-01-01") },
+      { fromMemberId: "dad", toMemberId: "son", type: "PARENT_OF" },
+      { fromMemberId: "mom", toMemberId: "son", type: "PARENT_OF" },
+    ];
+    const members = [mem("dad"), mem("mom"), mem("son")];
+    const r = rule({
+      id: "r",
+      entryId: "e",
+      targetType: "ROLE",
+      targetRole: "CHILD",
+    });
+    // author is dad; son is still dad's child regardless of the divorce
+    const input = makeInput({ rules: [r], members, edges });
+    input.entries[0].authorMemberId = "dad";
+    expect(recipients(input)).toEqual(["son"]);
   });
 });

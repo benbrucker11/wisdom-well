@@ -4,11 +4,13 @@ import { prisma } from "@/lib/db";
 import { familyReleaseStats, unrunnableRulesForFamily } from "@/lib/release";
 import { getSuccessionView } from "@/lib/succession";
 import {
+  acceptSuccessionAction,
   addSuccessorAction,
   assumeStewardshipAction,
   declineTransferAction,
   moveSuccessorAction,
   removeSuccessorAction,
+  setSuccessionPolicyAction,
 } from "./actions";
 
 function formatDate(d: Date): string {
@@ -66,6 +68,8 @@ export default async function StewardPage({
 
   const pending = view.pendingTransfer;
   const viewerIsHeir = pending?.toMemberId === member.id;
+  const myInvite = view.successors.find((s) => s.memberId === member.id);
+  const iAmInvitedNotAccepted = Boolean(myInvite && !myInvite.accepted);
 
   return (
     <div className="space-y-12">
@@ -82,6 +86,27 @@ export default async function StewardPage({
         <p className="rounded border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
           {sp.error}
         </p>
+      ) : null}
+
+      {/* You've been named a successor */}
+      {iAmInvitedNotAccepted ? (
+        <section className="rounded border border-accent/40 bg-parchment-deep p-5">
+          <h2 className="font-serif text-2xl">You&rsquo;ve been named a successor</h2>
+          <p className="mt-2">
+            The steward of {family.name} has put you in the line of succession at
+            position {myInvite?.position}. You won&rsquo;t be promoted unless you
+            accept. Accepting shares nothing sealed — it means you&rsquo;re
+            willing to look after the family if the steward becomes inactive.
+          </p>
+          <form action={acceptSuccessionAction} className="mt-4">
+            <button
+              type="submit"
+              className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
+            >
+              Accept
+            </button>
+          </form>
+        </section>
       ) : null}
 
       {/* Pending handover */}
@@ -164,7 +189,13 @@ export default async function StewardPage({
                     <span className="ml-2 text-xs text-danger">
                       no login — cannot take over
                     </span>
-                  ) : null}
+                  ) : s.accepted ? (
+                    <span className="ml-2 text-xs text-accent">accepted</span>
+                  ) : (
+                    <span className="ml-2 text-xs text-ink-soft">
+                      invited — not yet accepted
+                    </span>
+                  )}
                 </span>
                 {isSteward ? (
                   <span className="flex items-center gap-2 text-sm">
@@ -227,6 +258,40 @@ export default async function StewardPage({
             </p>
           )
         ) : null}
+
+        <div className="mt-6 text-sm text-ink-soft">
+          {view.policy === "NAMED_THEN_ELDEST_DESCENDANT" ? (
+            <p>
+              If the accepted line is ever empty, stewardship falls to the{" "}
+              <strong>eldest living descendant of the founder with an account</strong>
+              {view.policyFallbackName
+                ? ` — currently ${view.policyFallbackName}.`
+                : " (nobody eligible right now)."}
+            </p>
+          ) : (
+            <p>
+              Succession only goes to a named, accepted successor. If the line is
+              empty, there is no automatic fallback.
+            </p>
+          )}
+          {isSteward ? (
+            <form action={setSuccessionPolicyAction} className="mt-2 flex flex-wrap gap-2">
+              <select
+                name="policy"
+                defaultValue={view.policy}
+                className="rounded border border-rule bg-white px-3 py-1"
+              >
+                <option value="NAMED_THEN_ELDEST_DESCENDANT">
+                  Named, then eldest descendant
+                </option>
+                <option value="NAMED_ONLY">Named successors only</option>
+              </select>
+              <button type="submit" className="text-accent hover:opacity-80">
+                Save policy
+              </button>
+            </form>
+          ) : null}
+        </div>
       </section>
 
       {/* Steward-only: content-free overview (moved here from Confirmations) */}
@@ -278,6 +343,22 @@ export default async function StewardPage({
           </p>
         </section>
       ) : null}
+
+      {/* Export */}
+      <section>
+        <h2 className="font-serif text-2xl">Take your data with you</h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          A ZIP of the family tree and every entry you can see, with the original
+          audio and media — plain files, meant to outlive this software. Sealed
+          entries you can&rsquo;t see yet are not included.
+        </p>
+        <a
+          href="/api/family/export"
+          className="mt-3 inline-block rounded border border-rule px-4 py-2 no-underline hover:bg-parchment-deep"
+        >
+          Download export
+        </a>
+      </section>
 
       {/* History */}
       {view.history.length > 0 ? (

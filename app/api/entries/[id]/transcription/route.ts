@@ -3,6 +3,11 @@ import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { advanceTranscription } from "@/lib/transcription";
 
+// The request that observes a completed job also runs the Claude reconciliation
+// inline, which can take longer than the platform default. Give it room; the
+// optimistic lock makes a timed-out retry safe.
+export const maxDuration = 60;
+
 /**
  * Poll target for the interview page. Each hit checks AssemblyAI; the first one
  * to see a completed job stores the transcript, runs reconciliation, and moves

@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireMember } from "@/lib/auth";
 import {
+  acceptSuccession,
   addSuccessor,
   assumeStewardship,
   declineTransfer,
   moveSuccessor,
   removeSuccessor,
+  setSuccessionPolicy,
 } from "@/lib/succession";
 
 function str(formData: FormData, key: string): string {
@@ -72,5 +74,27 @@ export async function assumeStewardshipAction() {
   const { member } = await requireMember();
   await withError(() =>
     assumeStewardship({ familyId: member.familyId, actingMemberId: member.id }),
+  );
+}
+
+export async function acceptSuccessionAction() {
+  const { member } = await requireMember();
+  await withError(() =>
+    acceptSuccession({ familyId: member.familyId, actingMemberId: member.id }),
+  );
+}
+
+export async function setSuccessionPolicyAction(formData: FormData) {
+  const { member } = await requireMember();
+  const policy =
+    str(formData, "policy") === "NAMED_ONLY"
+      ? "NAMED_ONLY"
+      : "NAMED_THEN_ELDEST_DESCENDANT";
+  await withError(() =>
+    setSuccessionPolicy({
+      familyId: member.familyId,
+      actingMemberId: member.id,
+      policy,
+    }),
   );
 }

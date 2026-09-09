@@ -38,6 +38,8 @@ export interface EngineMember {
   id: string;
   dateOfBirth: Date | null;
   dateOfDeath: Date | null;
+  /** DEPARTED members drop out of ROLE / IMMEDIATE / ALL_FAMILY targeting. */
+  status: "ACTIVE" | "DEPARTED";
 }
 
 export interface EngineEntry {
@@ -57,6 +59,8 @@ export interface EngineRule {
   triggerAge: number | null;
   triggerDate: Date | null;
   triggerEvent: TriggerEvent | null;
+  /** Whether STEP parent edges count when resolving descendant roles. */
+  includeStepDescendants: boolean;
 }
 
 /** One recorded "the event happened for this person" confirmation. */
@@ -109,26 +113,36 @@ export function candidateRecipientIds(
   members: EngineMember[],
   graph: ReturnType<typeof buildGraph>,
 ): string[] {
+  // A SPECIFIC_MEMBER rule is an explicit choice by the author — it reaches its
+  // target even if that person has left the family. Every other target is a
+  // group, and DEPARTED members are no longer part of the group.
+  if (rule.targetType === "SPECIFIC_MEMBER") {
+    return rule.targetMemberId ? [rule.targetMemberId] : [];
+  }
+
+  const active = members.filter((m) => m.status !== "DEPARTED");
+  const activeIds = new Set(active.map((m) => m.id));
+  const inGroup = (ids: string[]) => ids.filter((id) => activeIds.has(id));
+
   switch (rule.targetType) {
     case "IMMEDIATE":
-      return members.map((m) => m.id);
-
-    case "SPECIFIC_MEMBER":
-      return rule.targetMemberId ? [rule.targetMemberId] : [];
+      return active.map((m) => m.id);
 
     case "ROLE": {
       switch (rule.targetRole) {
         case "ALL_FAMILY":
-          return members.map((m) => m.id);
+          return active.map((m) => m.id);
         case "CHILD":
-          return descendantsAtDepth(graph, authorMemberId, 1);
+          return inGroup(descendantsAtDepth(graph, authorMemberId, 1));
         case "GRANDCHILD":
-          return descendantsAtDepth(graph, authorMemberId, 2);
+          return inGroup(descendantsAtDepth(graph, authorMemberId, 2));
         case "GREAT_GRANDCHILD":
-          return descendantsAtDepth(graph, authorMemberId, 3);
+          return inGroup(descendantsAtDepth(graph, authorMemberId, 3));
         case "ANY_DESCENDANT":
-          return getDescendants(graph, authorMemberId, ANY_DESCENDANT_DEPTH).map(
-            (d) => d.memberId,
+          return inGroup(
+            getDescendants(graph, authorMemberId, ANY_DESCENDANT_DEPTH).map(
+              (d) => d.memberId,
+            ),
           );
         default:
           return [];
@@ -191,7 +205,10 @@ function isTriggerMet(
  */
 export function evaluateReleases(input: EngineInput): NewRelease[] {
   const membersById = new Map(input.members.map((m) => [m.id, m]));
-  const graph = buildGraph(input.edges);
+  // Two lineage views: one that counts step-parents, one that doesn't. Each
+  // rule picks according to its `includeStepDescendants` flag.
+  const graphWithStep = buildGraph(input.edges, { includeStep: true });
+  const graphNoStep = buildGraph(input.edges, { includeStep: false });
 
   const confirmedKeys = new Set(
     input.confirmations.map((c) => `${c.ruleId}:${c.subjectMemberId}`),
@@ -221,7 +238,7 @@ export function evaluateReleases(input: EngineInput): NewRelease[] {
         rule,
         entry.authorMemberId,
         input.members,
-        graph,
+        rule.includeStepDescendants ? graphWithStep : graphNoStep,
       );
 
       for (const candidateId of candidateIds) {

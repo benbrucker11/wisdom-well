@@ -32,8 +32,11 @@ export function RuleBuilder({
   members: { id: string; name: string }[];
 }) {
   const [target, setTarget] = useState<TargetType>("IMMEDIATE");
+  const [role, setRole] = useState<string>("");
   const [trigger, setTrigger] = useState<TriggerType>("NONE");
   const [event, setEvent] = useState<string>("MARRIAGE");
+
+  const isDescendantRole = ["CHILD", "GRANDCHILD", "GREAT_GRANDCHILD", "ANY_DESCENDANT"].includes(role);
 
   const triggerLocked = target === "IMMEDIATE";
 
@@ -76,18 +79,40 @@ export function RuleBuilder({
       ) : null}
 
       {target === "ROLE" ? (
-        <div className="space-y-1">
-          <span className="text-sm text-ink-soft">Which group?</span>
-          <select name="targetRole" required defaultValue="" className={field}>
-            <option value="" disabled>
-              Choose&hellip;
-            </option>
-            {ROLE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
+        <div className="space-y-2">
+          <div className="space-y-1">
+            <span className="text-sm text-ink-soft">Which group?</span>
+            <select
+              name="targetRole"
+              required
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className={field}
+            >
+              <option value="" disabled>
+                Choose&hellip;
               </option>
-            ))}
-          </select>
+              {ROLE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {isDescendantRole ? (
+            <label className="flex items-start gap-2 text-sm text-ink-soft">
+              <input
+                type="checkbox"
+                name="includeStepDescendants"
+                defaultChecked
+                className="mt-1"
+              />
+              <span>
+                Include step-children and their descendants. Adopted descendants
+                are always included.
+              </span>
+            </label>
+          ) : null}
         </div>
       ) : null}
 
