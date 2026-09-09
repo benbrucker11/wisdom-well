@@ -94,7 +94,32 @@ export async function getCurrentUser() {
     return null;
   }
 
+  await recordActivity(session.user);
   return session.user;
+}
+
+const ACTIVITY_THROTTLE_MS = 60 * 60 * 1000; // at most one write per hour
+
+/**
+ * Keep `lastSeenAt` roughly current so steward-inactivity detection (Phase 3)
+ * has something to measure against, and cancel a pending inactivity handover
+ * the moment a steward signs back in.
+ */
+async function recordActivity(
+  user: { id: string; lastSeenAt: Date; member: { id: string } | null },
+): Promise<void> {
+  if (Date.now() - user.lastSeenAt.getTime() < ACTIVITY_THROTTLE_MS) return;
+
+  const now = new Date();
+  user.lastSeenAt = now;
+  await prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: now } }).catch(
+    () => {},
+  );
+
+  if (user.member) {
+    const { cancelTransferOnStewardReturn } = await import("./succession");
+    await cancelTransferOnStewardReturn(user.member.id).catch(() => {});
+  }
 }
 
 export async function requireUser() {
@@ -111,6 +136,13 @@ export async function requireMember() {
   const user = await requireUser();
   if (!user.member) redirect("/onboarding");
   return { user, member: user.member };
+}
+
+/** A member who is the current steward of their family. Redirects otherwise. */
+export async function requireSteward() {
+  const { user, member } = await requireMember();
+  if (member.family.stewardMemberId !== member.id) redirect("/steward");
+  return { user, member };
 }
 
 export async function destroySession(): Promise<void> {

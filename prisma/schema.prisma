@@ -23,11 +23,14 @@ datasource db {
 // complete. `member` is nullable only for the brief window between first
 // sign-in and creating/joining a family.
 model User {
-  id        String    @id @default(cuid())
-  email     String    @unique
-  createdAt DateTime  @default(now())
-  member    Member?
-  sessions  Session[]
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  // Bumped (throttled) whenever the user makes an authenticated request. Drives
+  // steward-inactivity detection in Phase 3.
+  lastSeenAt DateTime @default(now())
+  member     Member?
+  sessions   Session[]
 }
 
 model Session {
@@ -62,12 +65,19 @@ model Family {
   // (the steward Member is created immediately after the Family row).
   stewardMemberId         String?  @unique
   stewardMember           Member?  @relation("FamilySteward", fields: [stewardMemberId], references: [id])
+  // The steward is considered inactive once their account has not been seen for
+  // this many days. Then succession begins.
   inactivityThresholdDays Int      @default(365)
+  // Once succession begins, the steward has this many days to sign in or
+  // decline before the first successor is promoted.
+  successionGraceDays     Int      @default(30)
   createdAt               DateTime @default(now())
 
   members       Member[]       @relation("FamilyMembers")
   relationships Relationship[]
   entries       Entry[]
+  successors    Successor[]
+  transfers     StewardTransfer[]
 }
 
 // A person in the family tree. May or may not have a login: children, deceased
@@ -93,6 +103,10 @@ model Member {
   rulesTargeting     ReleaseRule[]       @relation("RuleTargetMember")
   releasesReceived   Release[]           @relation("ReleaseRecipient")
   eventConfirmations EventConfirmation[] @relation("ConfirmationSubject")
+
+  successorSlot  Successor?        @relation("SuccessorMember")
+  transfersFrom  StewardTransfer[] @relation("TransferFrom")
+  transfersTo    StewardTransfer[] @relation("TransferTo")
 
   @@index([familyId])
 }
@@ -283,4 +297,63 @@ model EventConfirmation {
 
   @@unique([ruleId, subjectMemberId])
   @@index([ruleId])
+}
+
+// --- Stewardship & succession (Phase 3) ---------------------------------
+
+// An ordered line of succession for a family. Only the current steward manages
+// it. `position` 1 is the first successor. A successor must have a login (a
+// linked User) so they can actually act as steward.
+//
+// KNOWN OPEN QUESTION (spec §10): this models one clean transfer. Succession
+// five generations out, with branching families, is unresolved — single-family
+// is assumed for now.
+model Successor {
+  id        String   @id @default(cuid())
+  familyId  String
+  family    Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  memberId  String   @unique
+  member    Member   @relation("SuccessorMember", fields: [memberId], references: [id], onDelete: Cascade)
+  position  Int
+  createdAt DateTime @default(now())
+
+  @@unique([familyId, position])
+  @@index([familyId])
+}
+
+enum StewardTransferStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum StewardTransferCancelReason {
+  STEWARD_RETURNED // the steward signed in again during the grace period
+  STEWARD_DECLINED // the steward explicitly said "I'm still here"
+  SUPERSEDED // conditions changed (e.g. no successors, steward changed)
+}
+
+// A pending or historical stewardship handover triggered by inactivity. At most
+// one PENDING transfer per family. Completing it only changes
+// Family.stewardMemberId and the successor list — it never grants the new
+// steward visibility into sealed entries (spec §5 + Phase 3 "done when").
+model StewardTransfer {
+  id                String                       @id @default(cuid())
+  familyId          String
+  family            Family                       @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  fromMemberId      String?
+  fromMember        Member?                      @relation("TransferFrom", fields: [fromMemberId], references: [id])
+  toMemberId        String
+  toMember          Member                       @relation("TransferTo", fields: [toMemberId], references: [id])
+  status            StewardTransferStatus        @default(PENDING)
+  // The steward's lastSeenAt at the moment succession began — used to detect
+  // whether they have since returned.
+  stewardLastSeenAt DateTime
+  initiatedAt       DateTime                     @default(now())
+  graceEndsAt       DateTime
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      StewardTransferCancelReason?
+
+  @@index([familyId, status])
 }

@@ -41,6 +41,12 @@ export default async function RootLayout({
                 >
                   Confirmations
                 </Link>
+                <Link
+                  href="/steward"
+                  className="text-ink-soft no-underline hover:text-ink"
+                >
+                  Steward
+                </Link>
                 <form action="/api/auth/logout" method="post">
                   <button type="submit" className="text-ink-soft hover:text-ink">
                     Sign out

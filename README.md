@@ -7,9 +7,9 @@ Built in the phases described in the product brief.
 
 - **Phase 1 — Foundations:** done.
 - **Phase 2 — Entries & the release engine:** done.
-- Phase 3 (stewardship & succession) and Phase 4 (voice interview) are not
-  started. Schema fields they need (`Family.inactivityThresholdDays`,
-  `Entry.rawAudioUrl` / `transcriptRaw` / `transcriptStatus`) already exist.
+- **Phase 3 — Stewardship & succession:** done.
+- Phase 4 (voice interview) is not started. Schema fields it needs
+  (`Entry.rawAudioUrl` / `transcriptRaw` / `transcriptStatus`) already exist.
 
 ---
 
@@ -90,6 +90,43 @@ prototype runs with no cloud credentials. Setting `S3_BUCKET` switches to
 presigned S3 uploads — that path is a single marked seam, not yet implemented.
 Raw interview audio, once Phase 4 adds it, is retained permanently (brief §6).
 
+## Phase 3 — Stewardship & succession
+
+| Area | Where |
+| --- | --- |
+| Succession decision logic (pure) | `lib/succession/logic.ts` |
+| Successor list, inactivity detection, transfer flow (DB) | `lib/succession/index.ts` |
+| Steward dashboard + successor management UI | `app/steward/` |
+| Inactivity processing in the daily job | `app/api/cron/evaluate` |
+| Activity tracking + instant "steward came back" | `lib/auth.ts` (`recordActivity`) |
+| Logic tests + end-to-end check | `lib/succession/logic.test.ts`, `scripts/e2e-phase3.ts` |
+
+`Family` has an ordered `Successor[]` line (each successor must have a login).
+`decideSuccession(state)` is pure and returns exactly one action:
+
+- **INITIATE** — the steward's account has not been seen for
+  `inactivityThresholdDays` (default 365) and a successor exists: open a
+  `StewardTransfer` and email the steward and the first successor;
+- **NONE** — grace period (`successionGraceDays`, default 30) still running;
+- **CANCEL** — the steward signed in again (`STEWARD_RETURNED`), declined
+  (`STEWARD_DECLINED`), or the line changed under it (`SUPERSEDED`);
+- **COMPLETE** — grace elapsed: move `Family.stewardMemberId` to the successor
+  and drop them from the line.
+
+The daily job runs this for every family; a steward loading any page cancels a
+pending handover immediately; a successor can `assumeStewardship` once the
+grace period elapses.
+
+**Completing a handover only changes `Family.stewardMemberId` and the successor
+list.** It creates no `Release` rows and does not touch `visibleEntriesFor`, so
+the incoming steward gains no access to sealed entries — only the content-free
+aggregate view. `scripts/e2e-phase3.ts` asserts the new steward's visible
+entries are byte-for-byte unchanged by the transfer.
+
+**Known open question (brief §10):** this handles one clean transfer.
+Succession several generations out with branching families is unresolved;
+single-family is assumed.
+
 ---
 
 ## Running it
@@ -119,10 +156,10 @@ migration files entirely.)
 ### 4. Tests
 
 ```bash
-npm test        # pure unit suites — no database needed
-npm run e2e     # spins up a throwaway Postgres, drives the real release
-                # engine through every rule shape (needs the optional
-                # embedded-postgres dev dependency)
+npm test            # pure unit suites — no database needed
+npm run e2e         # phases 2 + 3 against a throwaway Postgres (needs the
+                    # optional embedded-postgres dev dependency)
+npm run e2e:phase3  # just the succession end-to-end check
 ```
 
 ### 5. Dev server
@@ -139,7 +176,8 @@ Then open <http://localhost:3000>:
 3. `/family` — add people and relationships; click anyone to see the tree from
    their point of view.
 4. `/entries/new` — write an entry, then add release rules and publish it.
-5. `/confirmations` — confirm life events; steward sees the aggregate view.
+5. `/confirmations` — confirm life events.
+6. `/steward` — name successors; see the content-free aggregate view.
 
 ---
 
@@ -163,15 +201,29 @@ hidden-under-direct-query check and irreversibility against a real Postgres;
 `lib/release/engine.test.ts` and `lib/release/visibility.test.ts` cover the same
 logic as fast pure tests.
 
+### Phase 3
+
+> Simulating steward inactivity correctly promotes the first successor without
+> exposing any sealed entry content.
+
+Proof: `npm run e2e:phase3` sets the steward's `lastSeenAt` 400 days back, runs
+the succession engine through INITIATE → grace → COMPLETE, and asserts the
+promoted successor's `visibleEntriesFor` output is unchanged and no `Release`
+rows were created. `lib/succession/logic.test.ts` covers every decision branch.
+
 ## Verification status
 
 Everything below has been run on this codebase:
 
-- `npm test` — pure unit suites (relationship graph, release engine, visibility)
-- `npm run e2e` — full release engine against real Postgres
+- `npm test` — 57 pure unit tests (relationship graph, release engine,
+  visibility, succession logic)
+- `npm run e2e` — release engine (17) + succession (21) against real Postgres
 - `npx tsc --noEmit` and `npx next build` — clean
 - manual click-through: sign in → onboarding → create entry → add rule →
-  publish → entry shows **Released** / **Received by**, steward aggregate updates
+  publish (**Released** / **Received by**); name a successor → simulate
+  inactivity → daily job opens a handover → heir sees the pending banner →
+  `assumeStewardship` promotes them; steward loading a page auto-cancels a
+  pending handover
 
 ## Stack
 

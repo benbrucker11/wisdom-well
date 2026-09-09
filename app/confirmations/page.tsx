@@ -1,11 +1,7 @@
 import Link from "next/link";
 import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import {
-  familyReleaseStats,
-  pendingEventConfirmations,
-  unrunnableRulesForFamily,
-} from "@/lib/release";
+import { pendingEventConfirmations } from "@/lib/release";
 import { confirmAuthorDeathAction, confirmEventAction } from "./actions";
 
 export default async function ConfirmationsPage({
@@ -22,13 +18,7 @@ export default async function ConfirmationsPage({
   });
   const isSteward = family?.stewardMemberId === member.id;
 
-  const [pending, stats, unrunnable] = await Promise.all([
-    pendingEventConfirmations(member.familyId, member.id),
-    isSteward ? familyReleaseStats(member.familyId) : Promise.resolve(null),
-    isSteward
-      ? unrunnableRulesForFamily(member.familyId, member.id)
-      : Promise.resolve([]),
-  ]);
+  const pending = await pendingEventConfirmations(member.familyId, member.id);
 
   // Non-stewards only act on their own entries; the living-author check for
   // events is enforced again in the server action.
@@ -110,48 +100,11 @@ export default async function ConfirmationsPage({
         )}
       </section>
 
-      {isSteward && stats ? (
-        <section className="rounded border border-rule bg-parchment-deep p-5">
-          <h2 className="font-serif text-2xl">The well at a glance</h2>
-          <p className="mt-1 text-sm text-ink-soft">
-            For succession. You can see that entries exist; you cannot open ones
-            that weren&rsquo;t released to you.
-          </p>
-          <dl className="mt-4 grid grid-cols-3 gap-4 text-center">
-            <div>
-              <dt className="text-sm text-ink-soft">Scheduled</dt>
-              <dd className="font-serif text-3xl">{stats.scheduled}</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-ink-soft">Released</dt>
-              <dd className="font-serif text-3xl">{stats.released}</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-ink-soft">Total deliveries</dt>
-              <dd className="font-serif text-3xl">{stats.recipients}</dd>
-            </div>
-          </dl>
-
-          {unrunnable.length > 0 ? (
-            <div className="mt-6">
-              <h3 className="text-sm uppercase tracking-wide text-ink-soft">
-                Rules that can&rsquo;t run yet
-              </h3>
-              <ul className="mt-2 space-y-1 text-sm">
-                {unrunnable.map((u) => (
-                  <li key={u.ruleId}>
-                    {u.entryTitle ? `“${u.entryTitle}”: ` : "An entry: "}
-                    {u.reason}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-sm text-ink-soft">
-                Add the missing date of birth on the{" "}
-                <Link href="/family">family</Link> page.
-              </p>
-            </div>
-          ) : null}
-        </section>
+      {isSteward ? (
+        <p className="text-sm text-ink-soft">
+          Aggregate counts and rules that can&rsquo;t run yet are on the{" "}
+          <Link href="/steward">stewardship</Link> page.
+        </p>
       ) : null}
     </div>
   );
