@@ -1,4 +1,5 @@
-import "server-only";
+// Server-only in practice (filesystem / cloud storage); not importing
+// "server-only" so the e2e scripts can stage fixtures through it.
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";

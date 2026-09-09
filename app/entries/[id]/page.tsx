@@ -7,13 +7,16 @@ import { describeRule } from "@/lib/release/describe";
 import { RuleBuilder } from "../_components/rule-builder";
 import {
   addRule,
+  approveTranscript,
   deleteEntry,
   deleteRule,
   publishEntry,
+  reopenTranscript,
   unscheduleEntry,
   updateEntry,
 } from "../actions";
 import { MediaUpload } from "../_components/media-upload";
+import { TranscriptionWatcher } from "../_components/transcription-watcher";
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString(undefined, {
@@ -145,6 +148,51 @@ export default async function EntryPage({
         </p>
       ) : null}
 
+      {full.transcriptStatus === "PROCESSING" ? (
+        <TranscriptionWatcher entryId={full.id} />
+      ) : null}
+
+      {/* Voice interview: raw transcript beside the cleaned entry (spec §6) */}
+      {full.transcriptRaw &&
+      (full.transcriptStatus === "DRAFT" || full.transcriptStatus === "APPROVED") ? (
+        <section>
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-serif text-xl">From the recording</h2>
+            {full.transcriptStatus === "DRAFT" ? (
+              <form action={approveTranscript}>
+                <input type="hidden" name="entryId" value={full.id} />
+                <button
+                  type="submit"
+                  className="rounded bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
+                >
+                  Approve this draft
+                </button>
+              </form>
+            ) : (
+              <form action={reopenTranscript} className="flex items-center gap-2">
+                <span className="text-sm text-accent">Transcript approved</span>
+                <input type="hidden" name="entryId" value={full.id} />
+                {full.status === "DRAFT" ? (
+                  <button
+                    type="submit"
+                    className="text-sm text-ink-soft hover:text-ink"
+                  >
+                    Reopen
+                  </button>
+                ) : null}
+              </form>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-ink-soft">
+            The draft above was cleaned up from what you said. Edit it freely —
+            here is the raw transcript to check it against.
+          </p>
+          <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded border border-rule bg-parchment-deep p-4 font-sans text-sm text-ink-soft">
+            {full.transcriptRaw}
+          </pre>
+        </section>
+      ) : null}
+
       {/* Content editor */}
       <section>
         <h2 className="font-serif text-xl">The entry</h2>
@@ -247,8 +295,16 @@ export default async function EntryPage({
       ) : null}
 
       {/* Lifecycle actions */}
-      <section className="flex flex-wrap gap-3 border-t border-rule pt-6">
-        {full.status === "DRAFT" ? (
+      <section className="flex flex-wrap items-center gap-3 border-t border-rule pt-6">
+        {full.status === "DRAFT" &&
+        (full.transcriptStatus === "PROCESSING" ||
+          full.transcriptStatus === "DRAFT") ? (
+          <p className="text-sm text-ink-soft">
+            {full.transcriptStatus === "PROCESSING"
+              ? "You can publish once the transcript is ready and approved."
+              : "Approve the transcript above before publishing."}
+          </p>
+        ) : full.status === "DRAFT" ? (
           <form action={publishEntry}>
             <input type="hidden" name="entryId" value={full.id} />
             <button

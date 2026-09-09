@@ -23,12 +23,12 @@ datasource db {
 // complete. `member` is nullable only for the brief window between first
 // sign-in and creating/joining a family.
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  email      String    @unique
+  createdAt  DateTime  @default(now())
   // Bumped (throttled) whenever the user makes an authenticated request. Drives
   // steward-inactivity detection in Phase 3.
-  lastSeenAt DateTime @default(now())
+  lastSeenAt DateTime  @default(now())
   member     Member?
   sessions   Session[]
 }
@@ -73,7 +73,7 @@ model Family {
   successionGraceDays     Int      @default(30)
   createdAt               DateTime @default(now())
 
-  members       Member[]       @relation("FamilyMembers")
+  members       Member[]          @relation("FamilyMembers")
   relationships Relationship[]
   entries       Entry[]
   successors    Successor[]
@@ -104,9 +104,9 @@ model Member {
   releasesReceived   Release[]           @relation("ReleaseRecipient")
   eventConfirmations EventConfirmation[] @relation("ConfirmationSubject")
 
-  successorSlot  Successor?        @relation("SuccessorMember")
-  transfersFrom  StewardTransfer[] @relation("TransferFrom")
-  transfersTo    StewardTransfer[] @relation("TransferTo")
+  successorSlot Successor?        @relation("SuccessorMember")
+  transfersFrom StewardTransfer[] @relation("TransferFrom")
+  transfersTo   StewardTransfer[] @relation("TransferTo")
 
   @@index([familyId])
 }
@@ -180,10 +180,12 @@ model Entry {
 
   // Phase 4 (voice interview). The recording in the person's own voice is the
   // artifact; the transcript is a convenience layer over it and is never the
-  // reason the audio is deleted.
+  // reason the audio is deleted (spec §6).
   rawAudioUrl      String?
   transcriptRaw    String?
   transcriptStatus TranscriptStatus @default(NONE)
+  transcriptJobId  String? // AssemblyAI transcript id while transcriptStatus = PROCESSING
+  interviewPrompt  String? // the guided question this recording answered, if any
 
   status     EntryStatus @default(DRAFT)
   createdAt  DateTime    @default(now())

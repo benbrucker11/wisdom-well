@@ -97,6 +97,35 @@ export async function deleteEntry(formData: FormData) {
   redirect("/entries");
 }
 
+// --- Voice transcript approval (spec §6) ---------------------------
+
+export async function approveTranscript(formData: FormData) {
+  const entryId = str(formData, "entryId");
+  const { entry } = await authorEntry(entryId);
+
+  // Only a reviewed DRAFT transcript can be approved. Never auto-approve.
+  if (entry.transcriptStatus !== "DRAFT") redirect(`/entries/${entry.id}`);
+
+  await prisma.entry.update({
+    where: { id: entry.id },
+    data: { transcriptStatus: "APPROVED" },
+  });
+  revalidatePath(`/entries/${entry.id}`);
+}
+
+export async function reopenTranscript(formData: FormData) {
+  const entryId = str(formData, "entryId");
+  const { entry } = await authorEntry(entryId);
+  if (entry.transcriptStatus !== "APPROVED" || entry.status !== "DRAFT") {
+    redirect(`/entries/${entry.id}`);
+  }
+  await prisma.entry.update({
+    where: { id: entry.id },
+    data: { transcriptStatus: "DRAFT" },
+  });
+  revalidatePath(`/entries/${entry.id}`);
+}
+
 // --- Publishing -----------------------------------------------------
 
 export async function publishEntry(formData: FormData) {

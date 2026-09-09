@@ -8,8 +8,7 @@ Built in the phases described in the product brief.
 - **Phase 1 — Foundations:** done.
 - **Phase 2 — Entries & the release engine:** done.
 - **Phase 3 — Stewardship & succession:** done.
-- Phase 4 (voice interview) is not started. Schema fields it needs
-  (`Entry.rawAudioUrl` / `transcriptRaw` / `transcriptStatus`) already exist.
+- **Phase 4 — Voice interview:** done.
 
 ---
 
@@ -127,6 +126,47 @@ entries are byte-for-byte unchanged by the transfer.
 Succession several generations out with branching families is unresolved;
 single-family is assumed.
 
+## Phase 4 — Voice interview
+
+| Area | Where |
+| --- | --- |
+| Guided prompt library (7 themes, one open question at a time) | `lib/prompts.ts` |
+| In-browser recording (MediaRecorder → upload) | `app/interview/_components/recorder.tsx` |
+| AssemblyAI transcription (submit / poll, speaker diarization) | `lib/transcription/assemblyai.ts` |
+| Claude reconciliation (raw transcript → entry in the speaker's voice) | `lib/transcription/reconcile.ts` |
+| Pipeline orchestration | `lib/transcription/index.ts` |
+| Interview UI + draft-and-approve | `app/interview/`, `app/entries/[id]/page.tsx` |
+| Routes | `app/api/interview`, `app/api/entries/[id]/transcription` |
+| Tests | `lib/prompts.test.ts`, `lib/transcription/reconcile.test.ts`, `scripts/e2e-phase4.ts` |
+
+The flow (spec §6):
+
+1. Record in the browser; the raw audio uploads to storage and is **kept
+   permanently** — the recording in the person's own voice is the artifact, the
+   transcript is a convenience layer over it, and both are always shown together.
+2. An `AUDIO` entry is created as a `DRAFT` with `transcriptStatus = PROCESSING`,
+   and the audio is submitted to AssemblyAI (`universal-3-5-pro` →
+   `universal-2`, `speaker_labels` on — a second person often chimes in).
+3. The interview page polls `/api/entries/[id]/transcription`; the first request
+   to see a completed job stores `transcriptRaw`, then asks Claude
+   (`claude-opus-5`) to reorganise the rambling account into a readable entry
+   **in the speaker's own voice** — explicitly told not to smooth them into
+   generic prose and not to add anything they didn't say. `transcriptStatus`
+   becomes `DRAFT`.
+4. The author sees the cleaned draft beside the raw transcript, edits, and
+   **approves**. Nothing is auto-published; `publishEntry` refuses to leave
+   `DRAFT` until `transcriptStatus` is `APPROVED`.
+
+Both API keys are server-only (`ASSEMBLYAI_API_KEY`, `ANTHROPIC_API_KEY`),
+proxied through server routes. Without `ASSEMBLYAI_API_KEY` the page still
+records but doesn't transcribe; without an Anthropic credential reconciliation
+falls back to a mechanical cleanup and the author still gets an editable draft.
+
+**Guided prompts (spec §7):** themes are Origins / Hard Times / Work and Craft /
+Love and Marriage / What I Believe / Advice I'd Give / Things I Got Wrong. One
+concrete open question at a time ("What did your mother do when money was
+tight?"), free to skip, free to wander off topic, no progress bar.
+
 ---
 
 ## Running it
@@ -160,6 +200,8 @@ npm test            # pure unit suites — no database needed
 npm run e2e         # phases 2 + 3 against a throwaway Postgres (needs the
                     # optional embedded-postgres dev dependency)
 npm run e2e:phase3  # just the succession end-to-end check
+npm run e2e:phase4  # voice pipeline vs the real AssemblyAI API — needs
+                    # ASSEMBLYAI_API_KEY and macOS `say` for the test clip
 ```
 
 ### 5. Dev server
@@ -176,8 +218,10 @@ Then open <http://localhost:3000>:
 3. `/family` — add people and relationships; click anyone to see the tree from
    their point of view.
 4. `/entries/new` — write an entry, then add release rules and publish it.
-5. `/confirmations` — confirm life events.
-6. `/steward` — name successors; see the content-free aggregate view.
+5. `/interview` — pick a theme, record against a question, get a draft to edit
+   and approve (needs `ASSEMBLYAI_API_KEY`).
+6. `/confirmations` — confirm life events.
+7. `/steward` — name successors; see the content-free aggregate view.
 
 ---
 
@@ -211,22 +255,33 @@ the succession engine through INITIATE → grace → COMPLETE, and asserts the
 promoted successor's `visibleEntriesFor` output is unchanged and no `Release`
 rows were created. `lib/succession/logic.test.ts` covers every decision branch.
 
+### Phase 4
+
+> A user can speak for five minutes against a guided prompt and end up with an
+> editable, approved entry with the original audio attached and playable.
+
+Proof: `npm run e2e:phase4` generates a spoken clip, runs it through the real
+AssemblyAI pipeline, and asserts the result is an approvable `DRAFT` whose body
+is editable, whose raw transcript recognised the speech, and whose original
+audio is byte-for-byte retrievable — with nothing auto-published.
+
 ## Verification status
 
 Everything below has been run on this codebase:
 
-- `npm test` — 57 pure unit tests (relationship graph, release engine,
-  visibility, succession logic)
-- `npm run e2e` — release engine (17) + succession (21) against real Postgres
+- `npm test` — 67 pure unit tests (relationship graph, release engine,
+  visibility, succession logic, prompt library, reconciliation fallback)
+- `npm run e2e` — release engine (17) + succession (21) against real Postgres;
+  `npm run e2e:phase4` — voice pipeline (12) against the real AssemblyAI API
 - `npx tsc --noEmit` and `npx next build` — clean
-- manual click-through: sign in → onboarding → create entry → add rule →
-  publish (**Released** / **Received by**); name a successor → simulate
-  inactivity → daily job opens a handover → heir sees the pending banner →
-  `assumeStewardship` promotes them; steward loading a page auto-cancels a
-  pending handover
+- manual click-through of every phase, including: record against "What did your
+  mother do when money was tight?" → transcript appears beside the draft →
+  approve → add rule → publish → **Released** / **Received by**, original audio
+  still attached
 
 ## Stack
 
 Next.js (App Router) · TypeScript · Postgres · Prisma · Tailwind CSS v4 ·
-Vitest. Auth is a hand-rolled magic-link flow (opaque session token +
-httpOnly cookie) — no third-party auth dependency, no passwords.
+Vitest · AssemblyAI (`universal-3-5-pro`) · Anthropic (`claude-opus-5`). Auth is
+a hand-rolled magic-link flow (opaque session token + httpOnly cookie) — no
+third-party auth dependency, no passwords.

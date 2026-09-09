@@ -25,14 +25,19 @@ export default async function EntriesPage() {
 
   return (
     <div className="space-y-12">
-      <header className="flex items-baseline justify-between">
+      <header className="flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="font-serif text-4xl">Entries</h1>
-        <Link
-          href="/entries/new"
-          className="rounded bg-accent px-4 py-2 text-white no-underline hover:opacity-90"
-        >
-          Write a new entry
-        </Link>
+        <span className="flex items-baseline gap-3">
+          <Link href="/interview" className="text-sm text-ink-soft no-underline hover:text-ink">
+            Speak a memory
+          </Link>
+          <Link
+            href="/entries/new"
+            className="rounded bg-accent px-4 py-2 text-white no-underline hover:opacity-90"
+          >
+            Write a new entry
+          </Link>
+        </span>
       </header>
 
       <section>

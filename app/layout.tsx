@@ -32,6 +32,9 @@ export default async function RootLayout({
                 <Link href="/entries" className="text-ink-soft no-underline hover:text-ink">
                   Entries
                 </Link>
+                <Link href="/interview" className="text-ink-soft no-underline hover:text-ink">
+                  Record
+                </Link>
                 <Link href="/family" className="text-ink-soft no-underline hover:text-ink">
                   Family
                 </Link>
