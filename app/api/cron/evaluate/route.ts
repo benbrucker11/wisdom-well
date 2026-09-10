@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { evaluateAllFamilies } from "@/lib/release";
 import { processAllSuccession } from "@/lib/succession";
+import { reconcilePendingDrafts } from "@/lib/transcription";
+
+export const maxDuration = 60;
 
 /**
  * The daily job. Point a scheduler (cron, Vercel Cron, GitHub Action) at this
@@ -46,11 +49,18 @@ async function run(req: NextRequest) {
     .filter((r) => r.action !== "NONE")
     .map((r) => `${r.action}: ${r.detail}`);
 
+  // Polish any voice drafts whose inline Claude pass didn't finish.
+  const draftsPolished = await reconcilePendingDrafts().catch((err) => {
+    console.error("reconcilePendingDrafts failed", err);
+    return 0;
+  });
+
   return NextResponse.json({
     ranAt: new Date().toISOString(),
     families: releaseResults.length,
     ...releaseTotals,
     successionActions,
+    draftsPolished,
   });
 }
 

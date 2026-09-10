@@ -223,6 +223,11 @@ model Entry {
   transcriptStatus TranscriptStatus @default(NONE)
   transcriptJobId  String? // AssemblyAI transcript id while transcriptStatus = PROCESSING
   interviewPrompt  String? // the guided question this recording answered, if any
+  // When the Claude reconciliation pass last ran. Null after a voice entry
+  // reaches DRAFT via the mechanical fallback (e.g. the inline attempt hit a
+  // serverless timeout); the daily job and a manual "polish" button pick these
+  // up.
+  reconciledAt     DateTime?
 
   status     EntryStatus @default(DRAFT)
   createdAt  DateTime    @default(now())

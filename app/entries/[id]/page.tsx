@@ -8,6 +8,7 @@ import { RuleBuilder } from "../_components/rule-builder";
 import {
   addRule,
   approveTranscript,
+  polishTranscript,
   deleteEntry,
   deleteRule,
   publishEntry,
@@ -33,6 +34,7 @@ const ERRORS: Record<string, string> = {
   rule: "Something in that rule didn't look right. Try again.",
   immediate: "“Everyone now” must be immediate. Use “the whole family” for a conditional release.",
   transcript: "Approve the transcript before publishing.",
+  polish: "The AI polish didn't finish this time — your draft is unchanged. Try again in a moment.",
 };
 
 function MediaBlock({
@@ -187,6 +189,21 @@ export default async function EntryPage({
             The draft above was cleaned up from what you said. Edit it freely —
             here is the raw transcript to check it against.
           </p>
+          {full.reconciledAt == null ? (
+            <form action={polishTranscript} className="mt-3">
+              <input type="hidden" name="entryId" value={full.id} />
+              <button
+                type="submit"
+                className="rounded border border-rule px-3 py-1.5 text-sm hover:bg-parchment-deep"
+              >
+                Polish this draft with AI
+              </button>
+              <span className="ml-2 text-xs text-ink-soft">
+                Reorganises the rambling into readable prose, in your own voice.
+                Won&rsquo;t touch edits you&rsquo;ve made.
+              </span>
+            </form>
+          ) : null}
           <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded border border-rule bg-parchment-deep p-4 font-sans text-sm text-ink-soft">
             {full.transcriptRaw}
           </pre>

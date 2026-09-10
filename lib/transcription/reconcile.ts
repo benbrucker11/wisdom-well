@@ -74,6 +74,14 @@ function titleFromPrompt(promptText: string | null): string {
   return "A memory";
 }
 
+/** The offline cleanup — a mechanical draft the author always gets, fast. */
+export function mechanicalReconcile(
+  transcriptRaw: string,
+  promptText: string | null,
+): { title: string; body: string } {
+  return { title: titleFromPrompt(promptText), body: lightClean(transcriptRaw) };
+}
+
 function extractJson(text: string): { title?: unknown; body?: unknown } | null {
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "");
   try {
@@ -96,8 +104,7 @@ export async function reconcileTranscript(input: {
   promptText: string | null;
 }): Promise<Reconciled> {
   const fallback = (): Reconciled => ({
-    title: titleFromPrompt(input.promptText),
-    body: lightClean(input.transcriptRaw),
+    ...mechanicalReconcile(input.transcriptRaw, input.promptText),
     reconciledByAI: false,
   });
 
@@ -109,6 +116,10 @@ export async function reconcileTranscript(input: {
       model: "claude-opus-5",
       max_tokens: 16000,
       thinking: { type: "adaptive" },
+      // Reformatting a transcript into readable prose is not a high-reasoning
+      // task; low effort keeps the call fast enough to finish inside a
+      // serverless request window.
+      output_config: { effort: "low" },
       system: SYSTEM,
       messages: [
         {

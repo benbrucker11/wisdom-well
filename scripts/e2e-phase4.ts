@@ -143,10 +143,21 @@ async function main() {
       /palermo|mandolin|fish market|nineteen twenty/i.test(done.transcriptRaw ?? ""),
     );
     check("the entry now has an editable body", done.body.trim().length > 0);
-    check(
-      "the body does not invent facts beyond the recording (fallback path only)",
-      done.transcriptRaw !== null,
-    );
+
+    const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY);
+    if (hasAnthropic) {
+      check("the Claude polish ran (reconciledAt set)", done.reconciledAt != null);
+      check(
+        "the polished body keeps the speaker's key facts",
+        /palermo|mandolin|fish market/i.test(done.body),
+      );
+      check(
+        "the polished body does not invent a name that wasn't said",
+        !/\b(sicily|naples|rome|milan)\b/i.test(done.body), // only "Palermo" was said
+      );
+    } else {
+      check("mechanical fallback produced a body", done.body.trim().length > 0);
+    }
     check("the AssemblyAI job id was cleared", done.transcriptJobId === null);
 
     // The author reviews and approves (spec §6, step 6 — never auto-published).

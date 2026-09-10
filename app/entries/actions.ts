@@ -113,6 +113,19 @@ export async function approveTranscript(formData: FormData) {
   revalidatePath(`/entries/${entry.id}`);
 }
 
+export async function polishTranscript(formData: FormData) {
+  const entryId = str(formData, "entryId");
+  const { entry } = await authorEntry(entryId);
+  const { polishEntryWithAi } = await import("@/lib/transcription");
+  try {
+    await polishEntryWithAi(entry.id);
+  } catch (err) {
+    console.error("polishTranscript failed", err);
+    redirect(`/entries/${entry.id}?error=polish`);
+  }
+  revalidatePath(`/entries/${entry.id}`);
+}
+
 export async function reopenTranscript(formData: FormData) {
   const entryId = str(formData, "entryId");
   const { entry } = await authorEntry(entryId);

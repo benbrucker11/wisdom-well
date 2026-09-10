@@ -148,7 +148,7 @@ subtree) is still a v2 model change.
 | Claude reconciliation (raw transcript → entry in the speaker's voice) | `lib/transcription/reconcile.ts` |
 | Pipeline orchestration | `lib/transcription/index.ts` |
 | Interview UI + draft-and-approve | `app/interview/`, `app/entries/[id]/page.tsx` |
-| Routes | `app/api/interview`, `app/api/entries/[id]/transcription` |
+| Routes | `app/api/interview`, `app/api/entries/[id]/transcription`, `app/api/entries/[id]/reconcile` |
 | Tests | `lib/prompts.test.ts`, `lib/transcription/reconcile.test.ts`, `scripts/e2e-phase4.ts` |
 
 The flow (spec §6):
@@ -159,12 +159,15 @@ The flow (spec §6):
 2. An `AUDIO` entry is created as a `DRAFT` with `transcriptStatus = PROCESSING`,
    and the audio is submitted to AssemblyAI (`universal-3-5-pro` →
    `universal-2`, `speaker_labels` on — a second person often chimes in).
-3. The interview page polls `/api/entries/[id]/transcription`; the first request
-   to see a completed job stores `transcriptRaw`, then asks Claude
-   (`claude-opus-5`) to reorganise the rambling account into a readable entry
-   **in the speaker's own voice** — explicitly told not to smooth them into
-   generic prose and not to add anything they didn't say. `transcriptStatus`
-   becomes `DRAFT`.
+3. The interview page polls `/api/entries/[id]/transcription`. On completion it
+   stores `transcriptRaw` and sets a **mechanical `DRAFT` immediately** (fast,
+   no network), then asks Claude (`claude-opus-5`) to reorganise the rambling
+   account into a readable entry **in the speaker's own voice** — explicitly
+   told not to smooth them into generic prose and not to add anything they
+   didn't say. If that inline call is cut short by a serverless timeout the
+   mechanical draft stands, `reconciledAt` stays null, and the "Polish with AI"
+   button / the daily job (`reconcilePendingDrafts`) finish it later — the AI
+   pass never overwrites edits the author has made.
 4. The author sees the cleaned draft beside the raw transcript, edits, and
    **approves**. Nothing is auto-published; `publishEntry` refuses to leave
    `DRAFT` until `transcriptStatus` is `APPROVED`.
@@ -183,8 +186,10 @@ tight?"), free to skip, free to wander off topic, no progress bar.
 
 ## Running it
 
-> **Deploying the prototype** (Vercel + Neon + Cloudflare R2 + Resend, all
-> free-tier): see [docs/DEPLOY.md](docs/DEPLOY.md).
+> **Deploying the prototype** — Neon (Postgres) + Cloudflare R2 (media) +
+> Resend (email) + Vercel *or* Netlify, all free-tier: see
+> [docs/DEPLOY.md](docs/DEPLOY.md). `.env.production` holds the ready-to-import
+> production values (gitignored).
 
 ### 1. Prerequisites
 
@@ -299,7 +304,8 @@ Everything below has been run on this codebase:
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Postgres · Prisma · Tailwind CSS v4 ·
-Vitest · AssemblyAI (`universal-3-5-pro`) · Anthropic (`claude-opus-5`). Auth is
-a hand-rolled magic-link flow (opaque session token + httpOnly cookie) — no
-third-party auth dependency, no passwords.
+Next.js (App Router) · TypeScript · Postgres (Neon) · Prisma · Tailwind CSS v4 ·
+Vitest · AssemblyAI (`universal-3-5-pro`) · Anthropic (`claude-opus-5`) · Resend
+(email) · Cloudflare R2 (media, via the S3 API). Auth is a hand-rolled
+magic-link flow (opaque session token + httpOnly cookie) — no third-party auth
+dependency, no passwords.

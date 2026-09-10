@@ -1,9 +1,12 @@
 node_modules
 .next
+.netlify
+.vercel
 out
 build
 .env
-.env*.local
+.env.*
+!.env.example
 *.log
 /coverage
 next-env.d.ts

@@ -1,106 +1,134 @@
 # Deploying the prototype
 
-Recommended free-tier stack: **Vercel** (app) + **Neon** (Postgres) +
-**Cloudflare R2** (media) + **Resend** (email). All have real free tiers; an
-idle prototype costs nothing.
+Free-tier stack: **Neon** (Postgres) + **Cloudflare R2** (media) + **Resend**
+(email) + a host for the Next.js app — **Vercel** or **Netlify**, both work.
 
-Single-vendor alternative: **Railway** — one project holds the app, a Postgres
-add-on, and a persistent volume, so the local-disk storage driver keeps working
-and you can skip the R2 step. ~$5/month once the trial credit runs out.
+Steps 1–5 are host-independent. Step 6 is Vercel; step 7 is Netlify — do one.
 
 ---
 
 ## 1. Postgres — Neon
 
-1. Create a project at [neon.tech](https://neon.tech) (no card).
-2. From the dashboard, copy **two** connection strings:
-   - the **pooled** string → `DATABASE_URL`
-   - the **direct** (unpooled) string → `DATABASE_DIRECT_URL`
-   Prisma uses the pooled one at runtime and the direct one for migrations
-   (`prisma/schema.prisma` declares both).
+Create a project at [neon.tech](https://neon.tech). Copy **two** connection
+strings from the dashboard:
+
+- the **pooled** string → `DATABASE_URL`
+- the **direct** (unpooled) string → `DATABASE_DIRECT_URL`
+
+Prisma uses the pooled one at runtime and the direct one for migrations
+(`prisma/schema.prisma` declares both).
 
 ## 2. Media — Cloudflare R2
 
-1. In the Cloudflare dashboard → R2 → create a bucket, e.g. `wisdom-well-media`.
-   Keep it **private**.
-2. R2 → Manage API Tokens → create a token with **Object Read & Write** scoped
-   to that bucket.
+1. Cloudflare dashboard → R2 → create a **private** bucket, e.g.
+   `wisdom-well-media`.
+2. R2 → Manage API Tokens → create an **S3-compatible** token with Object Read
+   & Write on that bucket. It gives you an Access Key ID and Secret Access Key.
 3. Set:
    ```
    S3_BUCKET=wisdom-well-media
    S3_REGION=auto
-   S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
-   S3_ACCESS_KEY_ID=<token access key id>
-   S3_SECRET_ACCESS_KEY=<token secret>
+   S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com   # account URL, no bucket
+   S3_ACCESS_KEY_ID=<...>
+   S3_SECRET_ACCESS_KEY=<...>
    ```
-   `lib/storage.ts` switches to the S3 driver as soon as `S3_BUCKET` is set.
-   Files are still served through `/api/media/<key>`, which enforces the same
-   visibility gate as the entry — so the bucket stays private.
+   `lib/storage.ts` switches to the S3 driver when `S3_BUCKET` is set. Files are
+   still served through `/api/media/<key>`, which re-checks visibility per
+   entry — so the bucket stays private.
 
 ## 3. Email — Resend
 
-1. Create an account at [resend.com](https://resend.com), verify a sending
-   domain (or use their onboarding sandbox domain for testing).
-2. Create an API key, then set:
-   ```
-   SMTP_URL=smtp://resend:<API_KEY>@smtp.resend.com:587
-   MAIL_FROM=Wisdom Well <no-reply@yourdomain.com>
-   ```
-   Without `SMTP_URL`, sign-in links and succession notices only print to the
-   server log — fine locally, useless in production.
+1. [resend.com](https://resend.com) → create an API key → `RESEND_API_KEY`.
+2. `MAIL_FROM` defaults to `Wisdom Well <onboarding@resend.dev>`.
 
-## 4. Anthropic (voice reconciliation)
+   **Sandbox limit:** with the `onboarding@resend.dev` sender, Resend only
+   delivers to the email that owns the Resend account. That's fine while you're
+   the only tester. Before real family members can sign in, verify a domain in
+   Resend and set `MAIL_FROM` to an address on it.
 
-1. [console.anthropic.com](https://console.anthropic.com) → create an org →
-   **Billing → add credits** (minimum $5, prepaid, no subscription).
-2. **API Keys → Create Key.** Copy it once.
-3. Set `ANTHROPIC_API_KEY`. `lib/transcription/reconcile.ts` picks it up
-   automatically; without it, transcripts get a mechanical cleanup instead.
+   Either way, every sign-in link and succession notice is also printed to the
+   server logs, so you can always retrieve one.
 
-Cost: reconciling a ~5-minute transcript with `claude-opus-5` is roughly
-$0.03–0.05. To cut that ~2.5×, change the model in `reconcile.ts` to
-`claude-sonnet-5`.
+## 4. Anthropic — voice reconciliation
+
+1. [console.anthropic.com](https://console.anthropic.com) → **Billing → add
+   credits** ($5 minimum, prepaid).
+2. **API Keys → Create Key** → `ANTHROPIC_API_KEY`.
+
+Cost per entry: ~$0.02–0.04. Without the key, transcripts get a mechanical
+cleanup and the "Polish with AI" button on the entry does nothing.
 
 ## 5. AssemblyAI
 
-Key at [assemblyai.com/dashboard/api-keys](https://www.assemblyai.com/dashboard/api-keys).
-Set `ASSEMBLYAI_API_KEY`. Free credit covers plenty of testing.
+Key from
+[assemblyai.com/dashboard/api-keys](https://www.assemblyai.com/dashboard/api-keys)
+→ `ASSEMBLYAI_API_KEY`.
 
-## 6. Deploy on Vercel
+---
+
+## 6. Host on Vercel
 
 1. Push the repo to GitHub, import it in Vercel.
-2. **Project → Settings → Environment Variables** — add everything above plus:
-   ```
-   CRON_SECRET=<a long random string>
-   ```
-   Vercel sends this automatically as `Authorization: Bearer $CRON_SECRET` to
-   the cron route.
-3. The default build command is `npm run build`, which runs
-   `prisma generate && prisma migrate deploy && next build` — migrations apply
-   at deploy time against Neon. (If you'd rather run migrations by hand, set the
-   build command to `npm run build:app` and run `npm run db:migrate` yourself.)
-4. `vercel.json` already registers the daily job:
+2. **Project → Settings → Environment Variables** — add everything from
+   `.env.production` (there's an "Import .env" button), and set a real
+   `CRON_SECRET` (any long random string).
+3. Build command stays `npm run build`
+   (`prisma generate && prisma migrate deploy && next build` — migrations apply
+   at deploy time). Use `npm run build:app` if you'd rather migrate by hand.
+4. `vercel.json` already schedules the daily job:
    ```json
    { "crons": [{ "path": "/api/cron/evaluate", "schedule": "0 8 * * *" }] }
    ```
-   It re-evaluates release rules **and** processes stewardship succession.
-5. `app/api/entries/[id]/transcription/route.ts` and
-   `app/api/family/export/route.ts` set `maxDuration = 60` so the inline Claude
-   call / ZIP build don't hit the default function timeout.
+   Vercel sends `Authorization: Bearer $CRON_SECRET` automatically.
+5. Deploy.
 
-Deploy, then smoke-test: sign in → onboarding → `/family` → `/entries/new` →
-`/interview` → publish.
+## 7. Host on Netlify
+
+1. Push the repo to GitHub, "Add new site → Import from Git" in Netlify.
+2. **Site configuration → Environment variables** — add everything from
+   `.env.production` (or `netlify env:import .env.production` with the CLI), plus
+   a real `CRON_SECRET`.
+3. `netlify.toml` is committed: build command `npm run build`, the Next.js
+   runtime is auto-installed, and Prisma's engine is bundled with the
+   functions.
+4. The daily job runs as a **Netlify Scheduled Function**,
+   `netlify/functions/daily-tasks.mjs` (`schedule = "0 8 * * *"`), which calls
+   `/api/cron/evaluate` with `CRON_SECRET`.
+5. Deploy.
+
+   **Function timeout:** Netlify's free tier caps serverless functions at 10 s.
+   The voice pipeline is built for this — an entry becomes an **editable
+   mechanical draft within a couple of seconds**, and the slower Claude polish
+   happens best-effort inline, via the "Polish with AI" button, and via the
+   daily job (`reconcilePendingDrafts`). So voice entries always work; the
+   AI-cleaned version may land a moment (or a day) later. Netlify Pro raises the
+   limit to 26 s, enough for the inline polish to usually finish on the spot.
+
+---
+
+## Verify a deploy
+
+1. Open the site → enter your email → follow the link from the log (or your
+   inbox) → create your family.
+2. `/family` — add people and relationships.
+3. `/entries/new` — write, add a rule, publish.
+4. `/interview` — record against a prompt, watch it become a draft.
+5. Hit the daily job once by hand:
+   ```bash
+   curl -X POST https://<your-site>/api/cron/evaluate -H "authorization: Bearer $CRON_SECRET"
+   ```
 
 ## Local development
 
 ```bash
 npm install
-cp .env.example .env          # set both DATABASE_URL and DATABASE_DIRECT_URL to the same local value
+cp .env.example .env          # set DATABASE_URL and DATABASE_DIRECT_URL to the same local value
 docker compose up -d          # or Postgres.app
 npm run db:migrate
 npm run dev
 ```
 
-`npm run e2e` (needs the optional `embedded-postgres` dev dep) spins up a
-throwaway Postgres and exercises the real release engine, succession engine, and
-export builder. `npm run e2e:phase4` additionally hits the real AssemblyAI API.
+`npm run e2e` (needs the optional `embedded-postgres` dev dep) exercises the
+release engine, succession engine, and export builder against a throwaway
+Postgres. `npm run e2e:phase4` additionally hits the real AssemblyAI (and
+Claude, if `ANTHROPIC_API_KEY` is set).
