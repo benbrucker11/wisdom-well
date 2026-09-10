@@ -85,16 +85,27 @@ Key from
 ## 7. Host on Netlify
 
 1. Push the repo to GitHub, "Add new site → Import from Git" in Netlify.
-2. **Site configuration → Environment variables** — add everything from
+2. **Set the environment variables *before* the first build.** Site
+   configuration → Environment variables → add everything from
    `.env.production` (or `netlify env:import .env.production` with the CLI), plus
-   a real `CRON_SECRET`.
+   a real `CRON_SECRET`. The build runs `prisma migrate deploy`, so it needs
+   `DATABASE_URL` and `DATABASE_DIRECT_URL` present — a build without them fails
+   with "environment variable not found". (The migration itself is a no-op if
+   the schema is already applied.)
 3. `netlify.toml` is committed: build command `npm run build`, the Next.js
-   runtime is auto-installed, and Prisma's engine is bundled with the
-   functions.
+   runtime auto-installs, the Prisma client + engines are bundled with the
+   functions, and `prisma/schema.prisma` lists the Linux `binaryTargets` Netlify
+   needs (`debian-openssl-3.0.x` for the build image, `rhel-openssl-3.0.x` for
+   the function runtime).
 4. The daily job runs as a **Netlify Scheduled Function**,
    `netlify/functions/daily-tasks.mjs` (`schedule = "0 8 * * *"`), which calls
    `/api/cron/evaluate` with `CRON_SECRET`.
-5. Deploy.
+5. Trigger a redeploy.
+
+   *If a build fails at `prisma generate` with "Unknown binaryTarget" — that's
+   the stale `PRISMA_CLI_BINARY_TARGETS` env var; it must not be set. If a
+   function errors at runtime with "Query engine library ... not found", add the
+   matching target to `binaryTargets` in the schema and redeploy.*
 
    **Function timeout:** Netlify's free tier caps serverless functions at 10 s.
    The voice pipeline is built for this — an entry becomes an **editable

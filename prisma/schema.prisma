@@ -10,6 +10,10 @@
 
 generator client {
   provider = "prisma-client-js"
+  // native  — local dev (macOS / whatever the machine is)
+  // debian-openssl-3.0.x — the Netlify / Vercel build image (Ubuntu 24.04)
+  // rhel-openssl-3.0.x   — the serverless function runtime (Amazon Linux 2023)
+  binaryTargets = ["native", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

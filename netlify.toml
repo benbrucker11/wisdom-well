@@ -2,20 +2,23 @@
 # The @netlify/plugin-nextjs runtime is auto-installed by Netlify when `next`
 # is a dependency and handles the App Router (SSR routes, API routes, image
 # optimization). No extra plugin block needed.
+#
+# Prisma engine selection is driven by `binaryTargets` in prisma/schema.prisma
+# (native + debian-openssl-3.0.x + rhel-openssl-3.0.x) — do NOT also set
+# PRISMA_CLI_BINARY_TARGETS here; the env var overrides the schema and rejects
+# the "native" entry.
 
 [build]
   command = "npm run build"
-  # `next build` output; the Next runtime picks it up.
-  publish = ".next"
-
-[build.environment]
-  # Prisma's binary target for Netlify's Linux build + runtime.
-  PRISMA_CLI_BINARY_TARGETS = "native"
 
 [functions]
   node_bundler = "esbuild"
-  # Bundle the Prisma engine with the serverless functions.
-  included_files = ["node_modules/.prisma/client/**", "prisma/**"]
+  # Force the generated Prisma client + its native query engines into the
+  # function bundle (the Linux `.so.node` files aren't always traced).
+  included_files = [
+    "node_modules/.prisma/client/**",
+    "node_modules/@prisma/client/**",
+  ]
 
 # The daily job runs as a scheduled function (netlify/functions/daily-tasks.mjs),
 # which calls /api/cron/evaluate with CRON_SECRET.
