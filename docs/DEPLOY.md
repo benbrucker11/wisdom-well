@@ -117,6 +117,30 @@ Key from
 
 ---
 
+## Not getting the sign-in email?
+
+Every sign-in link is also written to the deploy's function logs — grab it from
+there to get in immediately (Netlify: **Logs → Functions**; Vercel:
+**the deployment → Functions / Runtime Logs**). Look for:
+
+```
+✦ Wisdom Well sign-in link for you@example.com
+    https://your-site/api/auth/callback?token=...
+```
+
+The `[mail] ... delivered=<true|false> via=<resend|smtp|none> — <detail>` line
+just above it tells you what happened:
+
+- `via=none` → `RESEND_API_KEY` isn't set on the host. Add it (and `MAIL_FROM`),
+  then redeploy.
+- `via=resend delivered=false` → Resend rejected it. `restricted_api_key` on a
+  *list* call is normal (the key is send-only); a `validation_error` /
+  `403` here usually means you're sending to an address that isn't the Resend
+  account owner while still on `onboarding@resend.dev` — verify a domain.
+- `delivered=true` but nothing in the inbox → check spam. Gmail is aggressive
+  about the shared `onboarding@resend.dev` sender; verifying your own domain in
+  Resend and pointing `MAIL_FROM` at it fixes deliverability.
+
 ## Verify a deploy
 
 1. Open the site → enter your email → follow the link from the log (or your
