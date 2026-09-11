@@ -3,43 +3,57 @@
  *
  * Auth is passwordless (spec §8) — this product is meant for people in their
  * eighties. Delivery goes through Resend when RESEND_API_KEY is set, then SMTP
- * (SMTP_URL) as a fallback; either way the message is also written to the
- * server console outside production, so local development works with no mail
- * setup and links are never lost.
+ * (SMTP_URL) as a fallback.
+ *
+ * Every attempt logs its outcome, and any sign-in / handover link is always
+ * echoed to the server log — this is a prototype, and being locked out because
+ * an email bounced is worse than the small exposure of a link in your own
+ * function logs. Set MAIL_DEBUG=off once a domain is verified and delivery is
+ * reliable.
  *
  * Sandbox caveat: with the default `onboarding@resend.dev` sender, Resend only
- * delivers to the address that owns the Resend account. Verify a domain and set
- * MAIL_FROM to an address on it before real family members can sign in.
+ * delivers to the address that owns the Resend account, and only that address —
+ * everyone else gets a 403. Verify a domain in Resend and set MAIL_FROM to an
+ * address on it before other family members can sign in.
  */
 
 const DEFAULT_FROM = "Wisdom Well <onboarding@resend.dev>";
+
+export interface SendResult {
+  delivered: boolean;
+  via: "resend" | "smtp" | "none";
+  detail: string;
+}
 
 export async function sendEmail(opts: {
   to: string;
   subject: string;
   text: string;
-}): Promise<void> {
+}): Promise<SendResult> {
   const from = process.env.MAIL_FROM ?? DEFAULT_FROM;
   const resendKey = process.env.RESEND_API_KEY;
   const smtpUrl = process.env.SMTP_URL;
-  let delivered = false;
+
+  let result: SendResult = { delivered: false, via: "none", detail: "no email provider configured" };
 
   if (resendKey) {
     try {
       const { Resend } = await import("resend");
-      const { error } = await new Resend(resendKey).emails.send({
+      const { data, error } = await new Resend(resendKey).emails.send({
         from,
         to: opts.to,
         subject: opts.subject,
         text: opts.text,
       });
-      if (error) {
-        console.error("Resend delivery error:", error);
-      } else {
-        delivered = true;
-      }
+      result = error
+        ? { delivered: false, via: "resend", detail: `Resend error: ${error.name} — ${error.message}` }
+        : { delivered: true, via: "resend", detail: `Resend id ${data?.id ?? "?"}` };
     } catch (err) {
-      console.error("Resend send failed:", err);
+      result = {
+        delivered: false,
+        via: "resend",
+        detail: `Resend threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
   } else if (smtpUrl) {
     try {
@@ -50,22 +64,26 @@ export async function sendEmail(opts: {
         subject: opts.subject,
         text: opts.text,
       });
-      delivered = true;
+      result = { delivered: true, via: "smtp", detail: "sent via SMTP" };
     } catch (err) {
-      console.error("SMTP send failed:", err);
+      result = {
+        delivered: false,
+        via: "smtp",
+        detail: `SMTP threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
   }
 
-  if (!delivered || process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
-    console.log(
-      `\n  ✦ Wisdom Well email → ${opts.to}\n    ${opts.subject}\n    ${opts.text.replace(/\n/g, "\n    ")}\n`,
-    );
-  }
+  // eslint-disable-next-line no-console
+  console.log(
+    `[mail] to=${opts.to} subject=${JSON.stringify(opts.subject)} delivered=${result.delivered} via=${result.via} — ${result.detail}`,
+  );
+
+  return result;
 }
 
-export function sendMagicLinkEmail(to: string, url: string): Promise<void> {
-  return sendEmail({
+export async function sendMagicLinkEmail(to: string, url: string): Promise<void> {
+  const result = await sendEmail({
     to,
     subject: "Your Wisdom Well sign-in link",
     text: [
@@ -78,4 +96,9 @@ export function sendMagicLinkEmail(to: string, url: string): Promise<void> {
       "If this wasn't you, you can ignore this message.",
     ].join("\n"),
   });
+
+  if (!result.delivered || process.env.MAIL_DEBUG !== "off") {
+    // eslint-disable-next-line no-console
+    console.log(`\n  ✦ Wisdom Well sign-in link for ${to}\n    ${url}\n`);
+  }
 }
