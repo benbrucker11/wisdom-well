@@ -26,28 +26,25 @@ export default async function EntriesPage() {
   return (
     <div className="space-y-12">
       <header className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="font-serif text-4xl">Entries</h1>
+        <h1 className="font-serif text-h1 text-ink">Entries</h1>
         <span className="flex items-baseline gap-3">
           <Link href="/interview" className="text-sm text-ink-soft no-underline hover:text-ink">
             Speak a memory
           </Link>
-          <Link
-            href="/entries/new"
-            className="rounded bg-accent px-4 py-2 text-white no-underline hover:opacity-90"
-          >
+          <Link href="/entries/new" className="btn btn-primary no-underline">
             Write a new entry
           </Link>
         </span>
       </header>
 
       <section>
-        <h2 className="font-serif text-2xl">For you</h2>
+        <h2 className="font-serif text-h2 text-ink">For you</h2>
         {received.length === 0 ? (
           <p className="mt-3 text-ink-soft">
             Nothing has been released to you yet.
           </p>
         ) : (
-          <ul className="mt-4 divide-y divide-rule border-y border-rule">
+          <ul className="mt-4 divide-y divide-mist border-y border-mist">
             {received.map(({ entry }) => (
               <li key={entry.id} className="py-4">
                 <Link href={`/entries/${entry.id}`} className="no-underline">
@@ -64,13 +61,13 @@ export default async function EntriesPage() {
       </section>
 
       <section>
-        <h2 className="font-serif text-2xl">Your entries</h2>
+        <h2 className="font-serif text-h2 text-ink">Your entries</h2>
         {mine.length === 0 ? (
           <p className="mt-3 text-ink-soft">
             You haven&rsquo;t written anything yet.
           </p>
         ) : (
-          <ul className="mt-4 divide-y divide-rule border-y border-rule">
+          <ul className="mt-4 divide-y divide-mist border-y border-mist">
             {mine.map(({ entry }) => (
               <li
                 key={entry.id}

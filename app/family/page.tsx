@@ -3,6 +3,7 @@ import type { Member } from "@prisma/client";
 import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { describeFamilyFrom } from "@/lib/relationships";
+import { FamilyTreeDiagram } from "./_components/tree-diagram";
 import {
   addMember,
   addRelationship,
@@ -74,7 +75,7 @@ export default async function FamilyPage({
   return (
     <div className="space-y-14">
       <header>
-        <h1 className="font-serif text-4xl">{family.name}</h1>
+        <h1 className="font-serif text-h1 text-ink">{family.name}</h1>
         <p className="mt-2 text-ink-soft">
           {members.length} {members.length === 1 ? "person" : "people"} in the
           tree
@@ -89,17 +90,47 @@ export default async function FamilyPage({
       </header>
 
       {sp.error === "steward-departed" ? (
-        <p className="rounded border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+        <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
           The steward can&rsquo;t be marked as having left the family. Transfer
           stewardship first on the{" "}
           <Link href="/steward">stewardship</Link> page.
         </p>
       ) : null}
 
+      {/* --- Family tree diagram ---------------------------------------- */}
+      <section>
+        <h2 className="font-serif text-h2 text-ink">Family tree</h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          Select anyone in the tree to see the family from their point of view.
+        </p>
+        <div className="mt-4">
+          <FamilyTreeDiagram
+            members={members.map((m) => ({
+              id: m.id,
+              name: fullName(m),
+              dateOfBirth: m.dateOfBirth,
+              lifespan: lifespan(m),
+              isFocus: m.id === focusId,
+              isYou: m.id === user.member?.id,
+              isSteward: m.id === stewardId,
+              hasLogin: Boolean(m.userId),
+              departed: m.status === "DEPARTED",
+            }))}
+            relationships={relationships.map((r) => ({
+              fromMemberId: r.fromMemberId,
+              toMemberId: r.toMemberId,
+              type: r.type,
+              parentKind: r.parentKind,
+              endedAt: r.endedAt,
+            }))}
+          />
+        </div>
+      </section>
+
       {/* --- The people ------------------------------------------------- */}
       <section>
-        <h2 className="font-serif text-2xl">The people</h2>
-        <ul className="mt-4 divide-y divide-rule border-y border-rule">
+        <h2 className="font-serif text-h2 text-ink">The people</h2>
+        <ul className="mt-4 divide-y divide-mist border-y border-mist">
           {members.map((m) => {
             const span = lifespan(m);
             return (
@@ -149,7 +180,7 @@ export default async function FamilyPage({
                           type="date"
                           name="dateOfBirth"
                           defaultValue={isoDate(m.dateOfBirth)}
-                          className="mt-1 block rounded border border-rule bg-white px-2 py-1"
+                          className="field mt-1 px-2 py-1 text-sm"
                         />
                       </label>
                       <label className="text-xs text-ink-soft">
@@ -158,13 +189,10 @@ export default async function FamilyPage({
                           type="date"
                           name="dateOfDeath"
                           defaultValue={isoDate(m.dateOfDeath)}
-                          className="mt-1 block rounded border border-rule bg-white px-2 py-1"
+                          className="field mt-1 px-2 py-1 text-sm"
                         />
                       </label>
-                      <button
-                        type="submit"
-                        className="rounded bg-accent px-3 py-1 text-sm text-white hover:opacity-90"
-                      >
+                      <button type="submit" className="btn btn-primary btn-sm">
                         Save
                       </button>
                     </form>
@@ -176,10 +204,7 @@ export default async function FamilyPage({
                           name="status"
                           value={m.status === "DEPARTED" ? "ACTIVE" : "DEPARTED"}
                         />
-                        <button
-                          type="submit"
-                          className="text-ink-soft hover:text-danger"
-                        >
+                        <button type="submit" className="btn-text text-xs">
                           {m.status === "DEPARTED"
                             ? "Bring back into the family"
                             : "Mark as no longer in this family"}
@@ -196,12 +221,12 @@ export default async function FamilyPage({
 
       {/* --- Seen from the focused member ----------------------------- */}
       <section>
-        <h2 className="font-serif text-2xl">
+        <h2 className="font-serif text-h2 text-ink">
           Seen from {fullName(view.focus)}
         </h2>
 
-        <div className="mt-4 rounded border border-rule bg-white/60 p-5">
-          <h3 className="text-sm uppercase tracking-wide text-ink-soft">
+        <div className="card card-muted mt-4">
+          <h3 className="eyebrow">
             Grandchildren of {view.focus.givenName}
           </h3>
           {view.grandchildren.length > 0 ? (
@@ -216,7 +241,7 @@ export default async function FamilyPage({
         {view.relations.length > 0 ? (
           <table className="mt-6 w-full border-collapse text-left">
             <thead>
-              <tr className="border-b border-rule text-sm text-ink-soft">
+              <tr className="border-b border-mist text-sm text-ink-soft">
                 <th className="py-2 font-normal">Person</th>
                 <th className="py-2 font-normal">
                   Relationship to {view.focus.givenName}
@@ -225,7 +250,7 @@ export default async function FamilyPage({
             </thead>
             <tbody>
               {view.relations.map(({ member: m, relation }) => (
-                <tr key={m.id} className="border-b border-rule/60">
+                <tr key={m.id} className="border-b border-mist/60">
                   <td className="py-2">
                     <Link href={`/family?focus=${m.id}`}>{fullName(m)}</Link>
                   </td>
@@ -242,8 +267,8 @@ export default async function FamilyPage({
       </section>
 
       {missingDob.length > 0 ? (
-        <section className="rounded border border-rule bg-parchment-deep p-5">
-          <h2 className="font-serif text-xl">Missing dates of birth</h2>
+        <section className="card card-muted">
+          <h2 className="font-serif text-lg text-ink">Missing dates of birth</h2>
           <p className="mt-1 text-sm text-ink-soft">
             An age-based release rule cannot evaluate against a person with no
             date of birth. Add one under &ldquo;Edit dates&rdquo; above.
@@ -257,50 +282,39 @@ export default async function FamilyPage({
       {/* --- Editing the tree ---------------------------------------- */}
       <section className="grid gap-10 md:grid-cols-2">
         <div>
-          <h2 className="font-serif text-2xl">Add a person</h2>
+          <h2 className="font-serif text-h2 text-ink">Add a person</h2>
           <form action={addMember} className="mt-4 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <input
                 name="givenName"
                 required
                 placeholder="Given name"
-                className="w-full rounded border border-rule bg-white px-3 py-2"
+                className="field"
               />
               <input
                 name="surname"
                 required
                 placeholder="Family name"
                 defaultValue={family.name.replace(/^The\s+|\s+Family$/gi, "")}
-                className="w-full rounded border border-rule bg-white px-3 py-2"
+                className="field"
               />
             </div>
             <label className="block text-sm text-ink-soft">
               Date of birth
-              <input
-                type="date"
-                name="dateOfBirth"
-                className="mt-1 w-full rounded border border-rule bg-white px-3 py-2"
-              />
+              <input type="date" name="dateOfBirth" className="field mt-1" />
             </label>
             <label className="block text-sm text-ink-soft">
               Date of death (if applicable)
-              <input
-                type="date"
-                name="dateOfDeath"
-                className="mt-1 w-full rounded border border-rule bg-white px-3 py-2"
-              />
+              <input type="date" name="dateOfDeath" className="field mt-1" />
             </label>
-            <button
-              type="submit"
-              className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-            >
+            <button type="submit" className="btn btn-primary">
               Add person
             </button>
           </form>
         </div>
 
         <div>
-          <h2 className="font-serif text-2xl">Record a relationship</h2>
+          <h2 className="font-serif text-h2 text-ink">Record a relationship</h2>
           {members.length < 2 ? (
             <p className="mt-4 text-ink-soft">
               Add another person first.
@@ -311,7 +325,7 @@ export default async function FamilyPage({
                 name="fromMemberId"
                 required
                 defaultValue=""
-                className="w-full rounded border border-rule bg-white px-3 py-2"
+                className="field"
               >
                 <option value="" disabled>
                   Choose a person&hellip;
@@ -326,7 +340,7 @@ export default async function FamilyPage({
                 name="type"
                 required
                 defaultValue="PARENT_OF"
-                className="w-full rounded border border-rule bg-white px-3 py-2"
+                className="field"
               >
                 <option value="PARENT_OF">is a parent of</option>
                 <option value="SPOUSE_OF">is married to</option>
@@ -335,7 +349,7 @@ export default async function FamilyPage({
               <select
                 name="parentKind"
                 defaultValue="BIOLOGICAL"
-                className="w-full rounded border border-rule bg-white px-3 py-2 text-sm"
+                className="field text-sm"
               >
                 <option value="BIOLOGICAL">— parent type: biological</option>
                 <option value="ADOPTIVE">— parent type: adoptive</option>
@@ -346,7 +360,7 @@ export default async function FamilyPage({
                 name="toMemberId"
                 required
                 defaultValue=""
-                className="w-full rounded border border-rule bg-white px-3 py-2"
+                className="field"
               >
                 <option value="" disabled>
                   Choose a person&hellip;
@@ -357,10 +371,7 @@ export default async function FamilyPage({
                   </option>
                 ))}
               </select>
-              <button
-                type="submit"
-                className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-              >
+              <button type="submit" className="btn btn-primary">
                 Record
               </button>
               <p className="text-sm text-ink-soft">
@@ -376,8 +387,8 @@ export default async function FamilyPage({
 
       {relationships.length > 0 ? (
         <section>
-          <h2 className="font-serif text-2xl">Recorded relationships</h2>
-          <ul className="mt-4 divide-y divide-rule border-y border-rule">
+          <h2 className="font-serif text-h2 text-ink">Recorded relationships</h2>
+          <ul className="mt-4 divide-y divide-mist border-y border-mist">
             {relationships.map((r) => (
               <li
                 key={r.id}
@@ -400,10 +411,7 @@ export default async function FamilyPage({
                   {r.type === "SPOUSE_OF" && !r.endedAt ? (
                     <form action={endRelationship}>
                       <input type="hidden" name="id" value={r.id} />
-                      <button
-                        type="submit"
-                        className="text-ink-soft hover:text-ink"
-                      >
+                      <button type="submit" className="btn-text text-sm">
                         Mark ended
                       </button>
                     </form>
@@ -412,7 +420,7 @@ export default async function FamilyPage({
                     <input type="hidden" name="id" value={r.id} />
                     <button
                       type="submit"
-                      className="text-ink-soft hover:text-danger"
+                      className="btn-text text-sm hover:text-danger"
                     >
                       Remove
                     </button>

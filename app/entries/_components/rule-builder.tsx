@@ -22,7 +22,7 @@ const EVENT_OPTIONS: { value: string; label: string }[] = [
   { value: "CUSTOM", label: "a custom milestone" },
 ];
 
-const field = "w-full rounded border border-rule bg-white px-3 py-2";
+const field = "field";
 
 export function RuleBuilder({
   entryId,
@@ -41,7 +41,7 @@ export function RuleBuilder({
   const triggerLocked = target === "IMMEDIATE";
 
   return (
-    <form action={addRule} className="space-y-4 rounded border border-rule bg-parchment-deep p-5">
+    <form action={addRule} className="card card-muted space-y-4">
       <input type="hidden" name="entryId" value={entryId} />
 
       <div className="space-y-1">
@@ -199,10 +199,7 @@ export function RuleBuilder({
         </div>
       ) : null}
 
-      <button
-        type="submit"
-        className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-      >
+      <button type="submit" className="btn btn-primary">
         Add rule
       </button>
     </form>

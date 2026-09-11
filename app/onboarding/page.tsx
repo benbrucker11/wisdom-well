@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
+import { StackedLogo } from "../_components/brand-logo";
 import { createFamily } from "./actions";
 
 export default async function OnboardingPage({
@@ -13,13 +14,18 @@ export default async function OnboardingPage({
 
   return (
     <div className="mx-auto max-w-lg">
-      <h1 className="font-serif text-3xl">Start your family&rsquo;s well</h1>
-      <p className="mt-3 text-ink-soft">
-        A well is where a family keeps its stories, its values, and the things it
-        has learned. You&rsquo;ll be its first steward.
+      <div className="flex justify-center">
+        <StackedLogo width={120} />
+      </div>
+      <h1 className="mt-8 text-center font-serif text-h2 text-ink">
+        Start your family&rsquo;s well
+      </h1>
+      <p className="mt-3 text-center text-ink-soft">
+        A well is where a family keeps its stories, its values, and the things
+        it has learned. You&rsquo;ll be its first steward.
       </p>
 
-      <form action={createFamily} className="mt-8 space-y-5">
+      <form action={createFamily} className="card mt-10 space-y-5">
         {sp.error === "missing" ? (
           <p className="text-sm text-danger">
             Family name and your name are required.
@@ -32,26 +38,18 @@ export default async function OnboardingPage({
             name="familyName"
             required
             placeholder="The Kowalski Family"
-            className="mt-1 w-full rounded border border-rule bg-white px-4 py-3"
+            className="field mt-1"
           />
         </label>
 
         <div className="grid grid-cols-2 gap-4">
           <label className="block">
             <span className="text-sm text-ink-soft">Your given name</span>
-            <input
-              name="givenName"
-              required
-              className="mt-1 w-full rounded border border-rule bg-white px-4 py-3"
-            />
+            <input name="givenName" required className="field mt-1" />
           </label>
           <label className="block">
             <span className="text-sm text-ink-soft">Your family name</span>
-            <input
-              name="surname"
-              required
-              className="mt-1 w-full rounded border border-rule bg-white px-4 py-3"
-            />
+            <input name="surname" required className="field mt-1" />
           </label>
         </div>
 
@@ -62,18 +60,11 @@ export default async function OnboardingPage({
               (optional, but needed for age-based rules later)
             </span>
           </span>
-          <input
-            type="date"
-            name="dateOfBirth"
-            className="mt-1 w-full rounded border border-rule bg-white px-4 py-3"
-          />
+          <input type="date" name="dateOfBirth" className="field mt-1" />
         </label>
 
-        <button
-          type="submit"
-          className="rounded bg-accent px-5 py-3 text-white hover:opacity-90"
-        >
-          Create family
+        <button type="submit" className="btn btn-primary w-full">
+          Start your family&rsquo;s well
         </button>
       </form>
     </div>

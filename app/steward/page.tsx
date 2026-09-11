@@ -74,7 +74,7 @@ export default async function StewardPage({
   return (
     <div className="space-y-12">
       <header>
-        <h1 className="font-serif text-4xl">Stewardship</h1>
+        <h1 className="font-serif text-h1 text-ink">Stewardship</h1>
         <p className="mt-2 text-ink-soft">
           The steward looks after {family.name} — the family tree, invitations,
           and this line of succession. The steward does not read other people&rsquo;s
@@ -83,15 +83,15 @@ export default async function StewardPage({
       </header>
 
       {sp.error ? (
-        <p className="rounded border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+        <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
           {sp.error}
         </p>
       ) : null}
 
       {/* You've been named a successor */}
       {iAmInvitedNotAccepted ? (
-        <section className="rounded border border-accent/40 bg-parchment-deep p-5">
-          <h2 className="font-serif text-2xl">You&rsquo;ve been named a successor</h2>
+        <section className="card card-muted border-accent/40">
+          <h2 className="font-serif text-h2 text-ink">You&rsquo;ve been named a successor</h2>
           <p className="mt-2">
             The steward of {family.name} has put you in the line of succession at
             position {myInvite?.position}. You won&rsquo;t be promoted unless you
@@ -99,10 +99,7 @@ export default async function StewardPage({
             willing to look after the family if the steward becomes inactive.
           </p>
           <form action={acceptSuccessionAction} className="mt-4">
-            <button
-              type="submit"
-              className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-            >
+            <button type="submit" className="btn btn-primary">
               Accept
             </button>
           </form>
@@ -111,8 +108,8 @@ export default async function StewardPage({
 
       {/* Pending handover */}
       {pending ? (
-        <section className="rounded border border-accent/40 bg-parchment-deep p-5">
-          <h2 className="font-serif text-2xl">A handover is in progress</h2>
+        <section className="card card-muted border-accent/40">
+          <h2 className="font-serif text-h2 text-ink">A handover is in progress</h2>
           <p className="mt-2">
             Stewardship passes to <strong>{pending.toName}</strong> on{" "}
             {formatDate(pending.graceEndsAt)}
@@ -121,10 +118,7 @@ export default async function StewardPage({
 
           {isSteward ? (
             <form action={declineTransferAction} className="mt-4">
-              <button
-                type="submit"
-                className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-              >
+              <button type="submit" className="btn btn-primary">
                 I&rsquo;m still here — cancel the handover
               </button>
             </form>
@@ -135,11 +129,7 @@ export default async function StewardPage({
               <button
                 type="submit"
                 disabled={!pending.graceElapsed}
-                className={`rounded px-4 py-2 text-white ${
-                  pending.graceElapsed
-                    ? "bg-accent hover:opacity-90"
-                    : "cursor-not-allowed bg-ink-soft/40"
-                }`}
+                className="btn btn-primary"
               >
                 {pending.graceElapsed
                   ? "Assume stewardship"
@@ -152,7 +142,7 @@ export default async function StewardPage({
 
       {/* Current steward */}
       <section>
-        <h2 className="font-serif text-2xl">Current steward</h2>
+        <h2 className="font-serif text-h2 text-ink">Current steward</h2>
         <p className="mt-3">
           <strong>{view.assessment.stewardName ?? "—"}</strong>
           <span className="ml-2 text-sm text-ink-soft">
@@ -167,7 +157,7 @@ export default async function StewardPage({
 
       {/* Line of succession */}
       <section>
-        <h2 className="font-serif text-2xl">Line of succession</h2>
+        <h2 className="font-serif text-h2 text-ink">Line of succession</h2>
         {view.successors.length === 0 ? (
           <p className="mt-3 text-ink-soft">
             No successors named.
@@ -176,7 +166,7 @@ export default async function StewardPage({
               : ""}
           </p>
         ) : (
-          <ol className="mt-4 divide-y divide-rule border-y border-rule">
+          <ol className="mt-4 divide-y divide-mist border-y border-mist">
             {view.successors.map((s, idx) => (
               <li
                 key={s.id}
@@ -203,19 +193,19 @@ export default async function StewardPage({
                       <form action={moveSuccessorAction}>
                         <input type="hidden" name="successorId" value={s.id} />
                         <input type="hidden" name="direction" value="up" />
-                        <button className="text-ink-soft hover:text-ink">↑</button>
+                        <button className="btn-text">↑</button>
                       </form>
                     ) : null}
                     {idx < view.successors.length - 1 ? (
                       <form action={moveSuccessorAction}>
                         <input type="hidden" name="successorId" value={s.id} />
                         <input type="hidden" name="direction" value="down" />
-                        <button className="text-ink-soft hover:text-ink">↓</button>
+                        <button className="btn-text">↓</button>
                       </form>
                     ) : null}
                     <form action={removeSuccessorAction}>
                       <input type="hidden" name="successorId" value={s.id} />
-                      <button className="text-ink-soft hover:text-danger">
+                      <button className="btn-text hover:text-danger">
                         Remove
                       </button>
                     </form>
@@ -229,12 +219,7 @@ export default async function StewardPage({
         {isSteward ? (
           eligibleToAdd.length > 0 ? (
             <form action={addSuccessorAction} className="mt-4 flex flex-wrap gap-3">
-              <select
-                name="memberId"
-                required
-                defaultValue=""
-                className="rounded border border-rule bg-white px-3 py-2"
-              >
+              <select name="memberId" required defaultValue="" className="field">
                 <option value="" disabled>
                   Add a successor&hellip;
                 </option>
@@ -244,10 +229,7 @@ export default async function StewardPage({
                   </option>
                 ))}
               </select>
-              <button
-                type="submit"
-                className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-              >
+              <button type="submit" className="btn btn-primary">
                 Add
               </button>
             </form>
@@ -279,14 +261,14 @@ export default async function StewardPage({
               <select
                 name="policy"
                 defaultValue={view.policy}
-                className="rounded border border-rule bg-white px-3 py-1"
+                className="field w-auto px-3 py-1.5 text-sm"
               >
                 <option value="NAMED_THEN_ELDEST_DESCENDANT">
                   Named, then eldest descendant
                 </option>
                 <option value="NAMED_ONLY">Named successors only</option>
               </select>
-              <button type="submit" className="text-accent hover:opacity-80">
+              <button type="submit" className="btn-text text-accent">
                 Save policy
               </button>
             </form>
@@ -296,8 +278,8 @@ export default async function StewardPage({
 
       {/* Steward-only: content-free overview (moved here from Confirmations) */}
       {isSteward && stats ? (
-        <section className="rounded border border-rule bg-parchment-deep p-5">
-          <h2 className="font-serif text-2xl">The well at a glance</h2>
+        <section className="card card-muted">
+          <h2 className="font-serif text-h2 text-ink">The well at a glance</h2>
           <p className="mt-1 text-sm text-ink-soft">
             For succession planning. You can see that entries exist; you cannot
             open ones that weren&rsquo;t released to you.
@@ -305,15 +287,15 @@ export default async function StewardPage({
           <dl className="mt-4 grid grid-cols-3 gap-4 text-center">
             <div>
               <dt className="text-sm text-ink-soft">Scheduled</dt>
-              <dd className="font-serif text-3xl">{stats.scheduled}</dd>
+              <dd className="font-serif text-h2 text-ink">{stats.scheduled}</dd>
             </div>
             <div>
               <dt className="text-sm text-ink-soft">Released</dt>
-              <dd className="font-serif text-3xl">{stats.released}</dd>
+              <dd className="font-serif text-h2 text-ink">{stats.released}</dd>
             </div>
             <div>
               <dt className="text-sm text-ink-soft">Total deliveries</dt>
-              <dd className="font-serif text-3xl">{stats.recipients}</dd>
+              <dd className="font-serif text-h2 text-ink">{stats.recipients}</dd>
             </div>
           </dl>
 
@@ -346,16 +328,13 @@ export default async function StewardPage({
 
       {/* Export */}
       <section>
-        <h2 className="font-serif text-2xl">Take your data with you</h2>
+        <h2 className="font-serif text-h2 text-ink">Take your data with you</h2>
         <p className="mt-1 text-sm text-ink-soft">
           A ZIP of the family tree and every entry you can see, with the original
           audio and media — plain files, meant to outlive this software. Sealed
           entries you can&rsquo;t see yet are not included.
         </p>
-        <a
-          href="/api/family/export"
-          className="mt-3 inline-block rounded border border-rule px-4 py-2 no-underline hover:bg-parchment-deep"
-        >
+        <a href="/api/family/export" className="btn btn-secondary mt-3 no-underline">
           Download export
         </a>
       </section>
@@ -363,8 +342,8 @@ export default async function StewardPage({
       {/* History */}
       {view.history.length > 0 ? (
         <section>
-          <h2 className="font-serif text-2xl">Past handovers</h2>
-          <ul className="mt-3 divide-y divide-rule border-y border-rule text-sm">
+          <h2 className="font-serif text-h2 text-ink">Past handovers</h2>
+          <ul className="mt-3 divide-y divide-mist border-y border-mist text-sm">
             {view.history.map((h) => (
               <li key={h.id} className="flex justify-between py-2">
                 <span>

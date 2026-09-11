@@ -53,9 +53,9 @@ export function MediaUpload({
         <div className="space-y-2">
           {type === "IMAGE" ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={url} alt="" className="max-h-64 rounded border border-rule" />
+            <img src={url} alt="" className="max-h-64 rounded-card border border-mist" />
           ) : type === "VIDEO" ? (
-            <video src={url} controls className="max-h-64 rounded border border-rule" />
+            <video src={url} controls className="max-h-64 rounded-card border border-mist" />
           ) : type === "AUDIO" ? (
             <audio src={url} controls />
           ) : null}
@@ -65,7 +65,7 @@ export function MediaUpload({
               setUrl("");
               setType("TEXT");
             }}
-            className="text-sm text-ink-soft hover:text-danger"
+            className="btn-text text-sm hover:text-danger"
           >
             Remove attachment
           </button>

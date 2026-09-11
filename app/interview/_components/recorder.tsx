@@ -156,19 +156,15 @@ export function Recorder({ promptText }: { promptText: string }) {
   }
 
   return (
-    <div className="mt-8 rounded border border-rule bg-white/60 p-6">
+    <div className="card mt-8">
       {error ? (
-        <p className="mb-4 rounded border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+        <p className="mb-4 rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
           {error}
         </p>
       ) : null}
 
       {phase === "idle" ? (
-        <button
-          type="button"
-          onClick={startRecording}
-          className="rounded bg-accent px-5 py-3 text-white hover:opacity-90"
-        >
+        <button type="button" onClick={startRecording} className="btn btn-primary">
           Start recording
         </button>
       ) : null}
@@ -177,11 +173,7 @@ export function Recorder({ promptText }: { promptText: string }) {
         <div className="flex items-center gap-4">
           <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-danger" />
           <span className="tabular-nums text-lg">{formatElapsed(elapsed)}</span>
-          <button
-            type="button"
-            onClick={stopRecording}
-            className="rounded border border-rule px-4 py-2 hover:bg-parchment-deep"
-          >
+          <button type="button" onClick={stopRecording} className="btn btn-secondary">
             Stop
           </button>
           <span className="text-sm text-ink-soft">
@@ -194,18 +186,10 @@ export function Recorder({ promptText }: { promptText: string }) {
         <div className="space-y-4">
           <audio src={blobUrl} controls className="w-full" />
           <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={submit}
-              className="rounded bg-accent px-5 py-3 text-white hover:opacity-90"
-            >
+            <button type="button" onClick={submit} className="btn btn-primary">
               Use this recording
             </button>
-            <button
-              type="button"
-              onClick={discard}
-              className="rounded border border-rule px-4 py-2 hover:bg-parchment-deep"
-            >
+            <button type="button" onClick={discard} className="btn btn-secondary">
               Record again
             </button>
           </div>
