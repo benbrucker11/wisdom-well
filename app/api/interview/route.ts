@@ -29,10 +29,19 @@ export async function POST(req: NextRequest) {
   const bytes = Buffer.from(await file.arrayBuffer());
 
   // The recording is the artifact — stored permanently, before anything else.
-  const stored = await putObject(
-    { name: file.name || "interview.webm", type: file.type, bytes },
-    { prefix: "raw-audio" },
-  );
+  let stored: Awaited<ReturnType<typeof putObject>>;
+  try {
+    stored = await putObject(
+      { name: file.name || "interview.webm", type: file.type, bytes },
+      { prefix: "raw-audio" },
+    );
+  } catch (err) {
+    console.error("putObject (raw-audio) failed", err);
+    return NextResponse.json(
+      { error: "Could not save the recording. Storage isn't reachable right now." },
+      { status: 502 },
+    );
+  }
 
   try {
     const { entryId } = await startVoiceEntry({

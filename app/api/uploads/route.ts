@@ -26,10 +26,18 @@ export async function POST(req: NextRequest) {
     : "entry-media";
 
   const bytes = Buffer.from(await file.arrayBuffer());
-  const stored = await putObject(
-    { name: file.name, type: file.type, bytes },
-    { prefix },
-  );
 
-  return NextResponse.json(stored);
+  try {
+    const stored = await putObject(
+      { name: file.name, type: file.type, bytes },
+      { prefix },
+    );
+    return NextResponse.json(stored);
+  } catch (err) {
+    console.error("putObject failed", err);
+    return NextResponse.json(
+      { error: "Could not save the file. Storage isn't reachable right now." },
+      { status: 502 },
+    );
+  }
 }
