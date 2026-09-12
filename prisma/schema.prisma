@@ -52,15 +52,20 @@ model Session {
 }
 
 // Single-use, short-lived token emailed to the user for passwordless sign-in.
+// When issued as a family invite, memberId ties the token to the pre-created
+// Member row it should link on redemption (spec: invite-by-email, Phase 5).
 model MagicLinkToken {
   id        String    @id @default(cuid())
   token     String    @unique
   email     String
+  memberId  String?
+  member    Member?   @relation(fields: [memberId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 
   @@index([email])
+  @@index([memberId])
 }
 
 // --- Family & tree ---------------------------------------------------------
@@ -134,6 +139,7 @@ model Member {
   successorSlot Successor?        @relation("SuccessorMember")
   transfersFrom StewardTransfer[] @relation("TransferFrom")
   transfersTo   StewardTransfer[] @relation("TransferTo")
+  invites       MagicLinkToken[]
 
   @@index([familyId])
 }

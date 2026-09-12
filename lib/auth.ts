@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "./db";
-import { sendMagicLinkEmail } from "./mail";
+import { sendInviteEmail, sendMagicLinkEmail } from "./mail";
 
 const SESSION_COOKIE = "ww_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -30,9 +30,52 @@ export async function issueMagicLink(email: string, origin: string): Promise<str
   return url;
 }
 
+export type InviteResult =
+  | { ok: true }
+  | { ok: false; reason: "not_found" | "already_member" | "email_in_use" };
+
+/**
+ * Invite an existing, login-less Member by email: issues a magic link tied to
+ * that member so redemption links the two instead of sending the invitee
+ * through "create a family" onboarding (spec: invite-by-email, Phase 5).
+ */
+export async function issueMemberInvite(
+  memberId: string,
+  email: string,
+  origin: string,
+): Promise<InviteResult> {
+  const member = await prisma.member.findUnique({ where: { id: memberId } });
+  if (!member) return { ok: false, reason: "not_found" };
+  if (member.userId) return { ok: false, reason: "already_member" };
+
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    const linkedElsewhere = await prisma.member.findFirst({
+      where: { userId: existingUser.id, NOT: { id: memberId } },
+    });
+    if (linkedElsewhere) return { ok: false, reason: "email_in_use" };
+  }
+
+  const token = newToken();
+  await prisma.magicLinkToken.create({
+    data: {
+      token,
+      email,
+      memberId,
+      expiresAt: new Date(Date.now() + MAGIC_LINK_TTL_MS),
+    },
+  });
+
+  const url = `${origin}/api/auth/callback?token=${token}`;
+  await sendInviteEmail(email, url);
+  return { ok: true };
+}
+
 /**
  * Validate and burn a magic-link token, returning the matching User (creating
  * it on first sign-in). Returns null if the token is unknown, used, or expired.
+ * If the token was issued as a member invite, links that Member to the User
+ * (unless it was already linked in the meantime, which is left untouched).
  */
 export async function consumeMagicLink(token: string) {
   const row = await prisma.magicLinkToken.findUnique({ where: { token } });
@@ -45,11 +88,24 @@ export async function consumeMagicLink(token: string) {
     data: { usedAt: new Date() },
   });
 
-  return prisma.user.upsert({
+  const user = await prisma.user.upsert({
     where: { email: row.email },
     update: {},
     create: { email: row.email },
   });
+
+  if (row.memberId) {
+    const member = await prisma.member.findUnique({ where: { id: row.memberId } });
+    if (member && !member.userId) {
+      await prisma.member.update({ where: { id: member.id }, data: { userId: user.id } });
+    } else if (member && member.userId !== user.id) {
+      console.error(
+        `Invite conflict: member ${member.id} already linked to a different user; leaving it alone.`,
+      );
+    }
+  }
+
+  return user;
 }
 
 // --- Sessions ----------------------------------------------------------

@@ -1,11 +1,19 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { RelationshipType } from "@prisma/client";
-import { requireMember } from "@/lib/auth";
+import { issueMemberInvite, requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { evaluateFamily } from "@/lib/release";
+
+async function currentOrigin(): Promise<string> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  return `${proto}://${host}`;
+}
 
 const RELATIONSHIP_TYPES = new Set<string>(Object.values(RelationshipType));
 
@@ -34,10 +42,11 @@ export async function addMember(formData: FormData) {
   const surname = str(formData, "surname");
   const dateOfBirth = str(formData, "dateOfBirth");
   const dateOfDeath = str(formData, "dateOfDeath");
+  const email = str(formData, "email").toLowerCase();
 
   if (!givenName || !surname) return;
 
-  await prisma.member.create({
+  const created = await prisma.member.create({
     data: {
       familyId: member.familyId,
       givenName,
@@ -49,6 +58,29 @@ export async function addMember(formData: FormData) {
 
   await reevaluate(member.familyId);
   revalidatePath("/family");
+
+  if (email && email.includes("@")) {
+    const result = await issueMemberInvite(created.id, email, await currentOrigin());
+    redirect(result.ok ? "/family?invited=1" : `/family?inviteError=${result.reason}`);
+  }
+}
+
+/** Invite (or re-invite) an existing, login-less member by email. */
+export async function inviteMember(formData: FormData) {
+  const { member } = await requireMember();
+  const memberId = str(formData, "memberId");
+  const email = str(formData, "email").toLowerCase();
+
+  const target = await prisma.member.findFirst({
+    where: { id: memberId, familyId: member.familyId },
+    select: { id: true },
+  });
+  if (!target || !email || !email.includes("@")) {
+    redirect("/family?inviteError=invalid");
+  }
+
+  const result = await issueMemberInvite(memberId, email, await currentOrigin());
+  redirect(result.ok ? "/family?invited=1" : `/family?inviteError=${result.reason}`);
 }
 
 export async function updateMember(formData: FormData) {

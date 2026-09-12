@@ -102,3 +102,25 @@ export async function sendMagicLinkEmail(to: string, url: string): Promise<void>
     console.log(`\n  ✦ Wisdom Well sign-in link for ${to}\n    ${url}\n`);
   }
 }
+
+export async function sendInviteEmail(to: string, url: string): Promise<void> {
+  const result = await sendEmail({
+    to,
+    subject: "You've been invited to Wisdom Well",
+    text: [
+      "A family member has added you to their family on Wisdom Well — a private place to",
+      "keep the stories, lessons, and wisdom worth carrying forward.",
+      "",
+      "Open this link to sign in and see what they've shared:",
+      url,
+      "",
+      "The link works once and expires in 15 minutes. If you weren't expecting this, you",
+      "can ignore this message.",
+    ].join("\n"),
+  });
+
+  if (!result.delivered || process.env.MAIL_DEBUG !== "off") {
+    // eslint-disable-next-line no-console
+    console.log(`\n  ✦ Wisdom Well invite link for ${to}\n    ${url}\n`);
+  }
+}
