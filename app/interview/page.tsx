@@ -19,7 +19,7 @@ export default async function InterviewPage({
   if (!theme) {
     return (
       <div>
-        <h1 className="font-serif text-4xl">Speak a memory</h1>
+        <h1 className="font-serif text-h1 text-ink">Speak a memory</h1>
         <p className="mt-3 max-w-xl text-ink-soft">
           Pick something to talk about. You&rsquo;ll get one question at a time —
           skip any of them, and don&rsquo;t worry about staying on topic. When
@@ -28,14 +28,14 @@ export default async function InterviewPage({
         </p>
 
         {!configured ? (
-          <p className="mt-4 rounded border border-rule bg-parchment-deep p-3 text-sm text-ink-soft">
+          <p className="card card-muted mt-4 text-sm text-ink-soft">
             Transcription isn&rsquo;t configured on this server yet
             (<code>ASSEMBLYAI_API_KEY</code>). You can still record, but the
             entry won&rsquo;t be transcribed.
           </p>
         ) : null}
 
-        <ul className="mt-8 divide-y divide-rule border-y border-rule">
+        <ul className="mt-8 divide-y divide-mist border-y border-mist">
           {PROMPT_THEMES.map((t) => (
             <li key={t.slug}>
               <Link
@@ -61,7 +61,7 @@ export default async function InterviewPage({
         <span>{theme.title}</span>
       </div>
 
-      <h1 className="mt-6 font-serif text-3xl leading-snug">{prompt}</h1>
+      <h1 className="mt-6 font-serif text-h2 leading-snug text-ink">{prompt}</h1>
 
       <div className="mt-4 flex gap-4 text-sm">
         <Link href={`/interview?theme=${theme.slug}&i=${index + 1}`}>

@@ -32,7 +32,7 @@ export function TranscriptionWatcher({ entryId }: { entryId: string }) {
   }, [entryId, router]);
 
   return (
-    <p className="rounded border border-rule bg-parchment-deep p-4 text-sm text-ink-soft">
+    <p className="card card-muted text-sm text-ink-soft">
       Transcribing your recording&hellip; this page will update on its own when
       the draft is ready. The audio is already saved.
     </p>

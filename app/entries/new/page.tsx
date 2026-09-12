@@ -16,7 +16,7 @@ export default async function NewEntryPage({
       <Link href="/entries" className="text-sm text-ink-soft">
         &larr; Entries
       </Link>
-      <h1 className="mt-2 font-serif text-3xl">A new entry</h1>
+      <h1 className="mt-2 font-serif text-h2 text-ink">A new entry</h1>
       <p className="mt-2 text-ink-soft">
         Write it now; decide who receives it, and when, on the next screen. It
         stays a private draft until you publish it.
@@ -29,12 +29,7 @@ export default async function NewEntryPage({
 
         <label className="block space-y-1">
           <span className="text-sm text-ink-soft">Title</span>
-          <input
-            name="title"
-            required
-            autoFocus
-            className="w-full rounded border border-rule bg-white px-4 py-3"
-          />
+          <input name="title" required autoFocus className="field" />
         </label>
 
         <label className="block space-y-1">
@@ -42,17 +37,14 @@ export default async function NewEntryPage({
           <textarea
             name="body"
             rows={12}
-            className="w-full rounded border border-rule bg-white px-4 py-3 prose-entry"
+            className="field prose-entry"
             placeholder="Tell it the way you'd tell it out loud."
           />
         </label>
 
         <MediaUpload />
 
-        <button
-          type="submit"
-          className="rounded bg-accent px-5 py-3 text-white hover:opacity-90"
-        >
+        <button type="submit" className="btn btn-primary">
           Save draft
         </button>
       </form>

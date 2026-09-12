@@ -47,11 +47,11 @@ function MediaBlock({
   if (!mediaUrl) return null;
   if (mediaType === "IMAGE") {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={mediaUrl} alt="" className="my-6 rounded border border-rule" />;
+    return <img src={mediaUrl} alt="" className="my-6 rounded-card border border-mist" />;
   }
   if (mediaType === "VIDEO") {
     return (
-      <video src={mediaUrl} controls className="my-6 w-full rounded border border-rule" />
+      <video src={mediaUrl} controls className="my-6 w-full rounded-card border border-mist" />
     );
   }
   if (mediaType === "AUDIO") {
@@ -86,7 +86,7 @@ export default async function EntryPage({
         <Link href="/entries" className="text-sm text-ink-soft">
           &larr; Entries
         </Link>
-        <h1 className="mt-3 font-serif text-4xl">{entry.title}</h1>
+        <h1 className="mt-3 font-serif text-h1 text-ink">{entry.title}</h1>
         <p className="mt-2 text-ink-soft">
           {entry.author.givenName} {entry.author.familyName}
           {release ? ` · released to you ${formatDate(release.releasedAt)}` : ""}
@@ -133,7 +133,7 @@ export default async function EntryPage({
           &larr; Entries
         </Link>
         <div className="mt-2 flex items-baseline justify-between">
-          <h1 className="font-serif text-3xl">{full.title}</h1>
+          <h1 className="font-serif text-h2 text-ink">{full.title}</h1>
           <span className="text-sm text-ink-soft">
             {full.status === "DRAFT"
               ? "Draft"
@@ -145,7 +145,7 @@ export default async function EntryPage({
       </div>
 
       {sp.error && ERRORS[sp.error] ? (
-        <p className="rounded border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+        <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
           {ERRORS[sp.error]}
         </p>
       ) : null}
@@ -159,14 +159,11 @@ export default async function EntryPage({
       (full.transcriptStatus === "DRAFT" || full.transcriptStatus === "APPROVED") ? (
         <section>
           <div className="flex items-baseline justify-between">
-            <h2 className="font-serif text-xl">From the recording</h2>
+            <h2 className="font-serif text-lg text-ink">From the recording</h2>
             {full.transcriptStatus === "DRAFT" ? (
               <form action={approveTranscript}>
                 <input type="hidden" name="entryId" value={full.id} />
-                <button
-                  type="submit"
-                  className="rounded bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
-                >
+                <button type="submit" className="btn btn-primary btn-sm">
                   Approve this draft
                 </button>
               </form>
@@ -175,10 +172,7 @@ export default async function EntryPage({
                 <span className="text-sm text-accent">Transcript approved</span>
                 <input type="hidden" name="entryId" value={full.id} />
                 {full.status === "DRAFT" ? (
-                  <button
-                    type="submit"
-                    className="text-sm text-ink-soft hover:text-ink"
-                  >
+                  <button type="submit" className="btn-text text-sm">
                     Reopen
                   </button>
                 ) : null}
@@ -192,10 +186,7 @@ export default async function EntryPage({
           {full.reconciledAt == null ? (
             <form action={polishTranscript} className="mt-3">
               <input type="hidden" name="entryId" value={full.id} />
-              <button
-                type="submit"
-                className="rounded border border-rule px-3 py-1.5 text-sm hover:bg-parchment-deep"
-              >
+              <button type="submit" className="btn btn-secondary btn-sm">
                 Polish this draft with AI
               </button>
               <span className="ml-2 text-xs text-ink-soft">
@@ -204,7 +195,7 @@ export default async function EntryPage({
               </span>
             </form>
           ) : null}
-          <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded border border-rule bg-parchment-deep p-4 font-sans text-sm text-ink-soft">
+          <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-field border border-mist bg-parchment-deep p-4 font-sans text-sm text-ink-soft">
             {full.transcriptRaw}
           </pre>
         </section>
@@ -212,17 +203,12 @@ export default async function EntryPage({
 
       {/* Content editor */}
       <section>
-        <h2 className="font-serif text-xl">The entry</h2>
+        <h2 className="font-serif text-lg text-ink">The entry</h2>
         <form action={updateEntry} className="mt-4 space-y-4">
           <input type="hidden" name="entryId" value={full.id} />
           <label className="block space-y-1">
             <span className="text-sm text-ink-soft">Title</span>
-            <input
-              name="title"
-              defaultValue={full.title}
-              required
-              className="w-full rounded border border-rule bg-white px-4 py-3"
-            />
+            <input name="title" defaultValue={full.title} required className="field" />
           </label>
           <label className="block space-y-1">
             <span className="text-sm text-ink-soft">Body</span>
@@ -230,17 +216,14 @@ export default async function EntryPage({
               name="body"
               rows={12}
               defaultValue={full.body}
-              className="w-full rounded border border-rule bg-white px-4 py-3 prose-entry"
+              className="field prose-entry"
             />
           </label>
           <MediaUpload
             initialUrl={full.mediaUrl ?? ""}
             initialType={full.mediaType as "TEXT" | "IMAGE" | "VIDEO" | "AUDIO"}
           />
-          <button
-            type="submit"
-            className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-          >
+          <button type="submit" className="btn btn-primary">
             Save changes
           </button>
         </form>
@@ -248,7 +231,7 @@ export default async function EntryPage({
 
       {full.rawAudioUrl ? (
         <section>
-          <h2 className="font-serif text-xl">Original recording</h2>
+          <h2 className="font-serif text-lg text-ink">Original recording</h2>
           <p className="mt-1 text-sm text-ink-soft">
             The recording in the speaker&rsquo;s own voice is kept permanently.
           </p>
@@ -258,11 +241,11 @@ export default async function EntryPage({
 
       {/* Release rules */}
       <section>
-        <h2 className="font-serif text-xl">Who receives this, and when</h2>
+        <h2 className="font-serif text-lg text-ink">Who receives this, and when</h2>
         {full.rules.length === 0 ? (
           <p className="mt-2 text-ink-soft">No rules yet.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-rule border-y border-rule">
+          <ul className="mt-3 divide-y divide-mist border-y border-mist">
             {full.rules.map((rule) => (
               <li
                 key={rule.id}
@@ -272,10 +255,7 @@ export default async function EntryPage({
                 <form action={deleteRule}>
                   <input type="hidden" name="entryId" value={full.id} />
                   <input type="hidden" name="ruleId" value={rule.id} />
-                  <button
-                    type="submit"
-                    className="text-sm text-ink-soft hover:text-danger"
-                  >
+                  <button type="submit" className="btn-text text-sm hover:text-danger">
                     Remove
                   </button>
                 </form>
@@ -292,8 +272,8 @@ export default async function EntryPage({
       {/* Recipients so far */}
       {full.releases.length > 0 ? (
         <section>
-          <h2 className="font-serif text-xl">Received by</h2>
-          <ul className="mt-3 divide-y divide-rule border-y border-rule">
+          <h2 className="font-serif text-lg text-ink">Received by</h2>
+          <ul className="mt-3 divide-y divide-mist border-y border-mist">
             {full.releases.map((r) => (
               <li
                 key={r.id}
@@ -312,7 +292,7 @@ export default async function EntryPage({
       ) : null}
 
       {/* Lifecycle actions */}
-      <section className="flex flex-wrap items-center gap-3 border-t border-rule pt-6">
+      <section className="flex flex-wrap items-center gap-3 border-t border-mist pt-6">
         {full.status === "DRAFT" &&
         (full.transcriptStatus === "PROCESSING" ||
           full.transcriptStatus === "DRAFT") ? (
@@ -324,10 +304,7 @@ export default async function EntryPage({
         ) : full.status === "DRAFT" ? (
           <form action={publishEntry}>
             <input type="hidden" name="entryId" value={full.id} />
-            <button
-              type="submit"
-              className="rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-            >
+            <button type="submit" className="btn btn-primary">
               Publish
             </button>
           </form>
@@ -336,10 +313,7 @@ export default async function EntryPage({
         {full.status === "SCHEDULED" && full.releases.length === 0 ? (
           <form action={unscheduleEntry}>
             <input type="hidden" name="entryId" value={full.id} />
-            <button
-              type="submit"
-              className="rounded border border-rule px-4 py-2 hover:bg-parchment-deep"
-            >
+            <button type="submit" className="btn btn-secondary">
               Back to draft
             </button>
           </form>
@@ -348,10 +322,7 @@ export default async function EntryPage({
         {canEditFreely && full.releases.length === 0 ? (
           <form action={deleteEntry}>
             <input type="hidden" name="entryId" value={full.id} />
-            <button
-              type="submit"
-              className="rounded border border-danger/40 px-4 py-2 text-danger hover:bg-danger/5"
-            >
+            <button type="submit" className="btn btn-danger">
               Delete entry
             </button>
           </form>

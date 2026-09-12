@@ -29,7 +29,7 @@ export default async function ConfirmationsPage({
   return (
     <div className="space-y-12">
       <header>
-        <h1 className="font-serif text-4xl">Confirmations</h1>
+        <h1 className="font-serif text-h1 text-ink">Confirmations</h1>
         <p className="mt-2 text-ink-soft">
           Some entries wait on a life event. Nothing here reveals what an entry
           says &mdash; only that one is waiting.
@@ -37,17 +37,17 @@ export default async function ConfirmationsPage({
       </header>
 
       {sp.error === "forbidden" ? (
-        <p className="rounded border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+        <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
           Only the steward or the living author can confirm that.
         </p>
       ) : null}
 
       <section>
-        <h2 className="font-serif text-2xl">Waiting on</h2>
+        <h2 className="font-serif text-h2 text-ink">Waiting on</h2>
         {actionable.length === 0 ? (
           <p className="mt-3 text-ink-soft">Nothing is waiting on you.</p>
         ) : (
-          <ul className="mt-4 divide-y divide-rule border-y border-rule">
+          <ul className="mt-4 divide-y divide-mist border-y border-mist">
             {actionable.map((item) => (
               <li key={`${item.ruleId}:${item.kind === "EVENT" ? item.subjectMemberId : item.authorMemberId}`} className="py-4">
                 {item.kind === "EVENT" ? (
@@ -62,10 +62,7 @@ export default async function ConfirmationsPage({
                           : `an entry by ${item.authorName}`}
                       </span>
                     </span>
-                    <button
-                      type="submit"
-                      className="shrink-0 rounded bg-accent px-4 py-2 text-white hover:opacity-90"
-                    >
+                    <button type="submit" className="btn btn-primary btn-sm shrink-0">
                       This happened
                     </button>
                   </form>
@@ -81,10 +78,7 @@ export default async function ConfirmationsPage({
                       </span>
                     </span>
                     {isSteward ? (
-                      <button
-                        type="submit"
-                        className="shrink-0 rounded border border-danger/40 px-4 py-2 text-danger hover:bg-danger/5"
-                      >
+                      <button type="submit" className="btn btn-danger btn-sm shrink-0">
                         Record date of death
                       </button>
                     ) : (
