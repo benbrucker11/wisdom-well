@@ -13,7 +13,7 @@
 
   /* Brand palette */
   --color-well: #405e68; /* Deep Well — primary brand/action color */
-  --color-well-ink: #27383e; /* Ink — primary text, hover target for Deep Well */
+  --color-well-ink: #283941; /* Ink — primary text, hover target for Deep Well; matches the logo package's dark-surface exactly */
   --color-slate: #617a82; /* Well Slate — secondary text, icons */
   --color-water: #b8cdd5; /* Water — accents, selected states, focus rings */
   --color-mist: #e3ecef; /* Mist — soft surfaces, cards, dividers */
@@ -51,28 +51,38 @@ html {
   color-scheme: light;
 }
 
-body {
-  background-color: var(--color-parchment);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  font-size: 18px;
-  line-height: 1.7;
-  -webkit-font-smoothing: antialiased;
-}
+/*
+ * Layered deliberately: unlayered CSS always beats anything inside a
+ * Tailwind @layer, regardless of specificity. Plain element selectors like
+ * `a` have to live in @layer base so .btn-primary (components) and Tailwind
+ * utilities can still override them — an earlier unlayered `a { color }`
+ * rule this same color as a button's own background made its label
+ * invisible, silently, with no specificity fight visible in the source.
+ */
+@layer base {
+  body {
+    background-color: var(--color-parchment);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 18px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
 
-h1,
-h2 {
-  font-family: var(--font-serif);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-}
+  h1,
+  h2 {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
 
-a {
-  color: var(--color-accent);
-  text-underline-offset: 3px;
-}
-a:hover {
-  text-decoration: underline;
+  a {
+    color: var(--color-accent);
+    text-underline-offset: 3px;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
 }
 
 /* Long-form wisdom text — reads like a book, not a dashboard. */
@@ -221,5 +231,23 @@ button {
   }
   .field::placeholder {
     color: var(--color-stone);
+  }
+  .field:focus-visible {
+    outline: none;
+    border-color: var(--color-well);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-water) 55%, transparent);
+  }
+  select.field {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    padding-right: 2.5rem;
+    background-repeat: no-repeat;
+    background-position: right 0.85rem center;
+    background-size: 14px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23617a82' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  }
+  select.field::-ms-expand {
+    display: none;
   }
 }

@@ -9,9 +9,17 @@ import {
   addRelationship,
   deleteRelationship,
   endRelationship,
+  inviteMember,
   setMemberStatus,
   updateMember,
 } from "./actions";
+
+const INVITE_ERROR_LABEL: Record<string, string> = {
+  not_found: "That person couldn't be found.",
+  already_member: "That person already has a login.",
+  email_in_use: "That email is already linked to a different family member.",
+  invalid: "Enter a valid email address.",
+};
 
 const PARENT_KIND_LABEL: Record<string, string> = {
   BIOLOGICAL: "",
@@ -46,7 +54,12 @@ function lifespan(m: Member): string | null {
 export default async function FamilyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ focus?: string; error?: string }>;
+  searchParams: Promise<{
+    focus?: string;
+    error?: string;
+    invited?: string;
+    inviteError?: string;
+  }>;
 }) {
   const { user, member } = await requireMember();
   const family = member.family;
@@ -94,6 +107,17 @@ export default async function FamilyPage({
           The steward can&rsquo;t be marked as having left the family. Transfer
           stewardship first on the{" "}
           <Link href="/steward">stewardship</Link> page.
+        </p>
+      ) : null}
+
+      {sp.invited ? (
+        <p className="rounded-field border border-success/40 bg-success/10 p-3 text-sm text-success">
+          Invite sent. They&rsquo;ll get a sign-in link by email.
+        </p>
+      ) : null}
+      {sp.inviteError ? (
+        <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+          {INVITE_ERROR_LABEL[sp.inviteError] ?? "Couldn't send that invite."}
         </p>
       ) : null}
 
@@ -211,6 +235,24 @@ export default async function FamilyPage({
                         </button>
                       </form>
                     ) : null}
+                    {!m.userId && m.status !== "DEPARTED" ? (
+                      <form
+                        action={inviteMember}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <input type="hidden" name="memberId" value={m.id} />
+                        <input
+                          type="email"
+                          name="email"
+                          required
+                          placeholder="their email"
+                          className="field px-2 py-1 text-sm"
+                        />
+                        <button type="submit" className="btn btn-secondary btn-sm">
+                          Invite to sign in
+                        </button>
+                      </form>
+                    ) : null}
                   </div>
                 </details>
               </li>
@@ -306,6 +348,15 @@ export default async function FamilyPage({
             <label className="block text-sm text-ink-soft">
               Date of death (if applicable)
               <input type="date" name="dateOfDeath" className="field mt-1" />
+            </label>
+            <label className="block text-sm text-ink-soft">
+              Email (optional — invite them to sign in)
+              <input
+                type="email"
+                name="email"
+                placeholder="their.email@example.com"
+                className="field mt-1"
+              />
             </label>
             <button type="submit" className="btn btn-primary">
               Add person
