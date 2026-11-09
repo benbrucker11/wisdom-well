@@ -17,6 +17,21 @@ async function currentOrigin(): Promise<string> {
 
 const RELATIONSHIP_TYPES = new Set<string>(Object.values(RelationshipType));
 
+/**
+ * Shaping the tree — adding people, inviting them, recording or removing
+ * relationships, marking someone as having left — is the steward's job
+ * (decided Nov 2026: steward-only for now). Everyone can still view the tree.
+ */
+async function requireStewardMember() {
+  const ctx = await requireMember();
+  if (ctx.member.family.stewardMemberId !== ctx.member.id) {
+    redirect("/family?error=steward-only");
+  }
+  return ctx;
+}
+
+const CUSTOM_LABEL_MAX = 40;
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -36,7 +51,7 @@ async function reevaluate(familyId: string) {
 }
 
 export async function addMember(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
 
   const givenName = str(formData, "givenName");
   const surname = str(formData, "surname");
@@ -67,7 +82,7 @@ export async function addMember(formData: FormData) {
 
 /** Invite (or re-invite) an existing, login-less member by email. */
 export async function inviteMember(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
   const memberId = str(formData, "memberId");
   const email = str(formData, "email").toLowerCase();
 
@@ -94,6 +109,9 @@ export async function updateMember(formData: FormData) {
     select: { id: true },
   });
   if (!target) return;
+  // The steward can correct anyone; everyone else can correct only themselves.
+  const isSteward = member.family.stewardMemberId === member.id;
+  if (!isSteward && id !== member.id) redirect("/family?error=steward-only");
 
   await prisma.member.update({
     where: { id },
@@ -110,7 +128,7 @@ export async function updateMember(formData: FormData) {
 const PARENT_KINDS = new Set(["BIOLOGICAL", "ADOPTIVE", "STEP", "GUARDIAN"]);
 
 export async function setMemberStatus(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
   const id = str(formData, "id");
   const status = str(formData, "status") === "DEPARTED" ? "DEPARTED" : "ACTIVE";
 
@@ -136,15 +154,24 @@ export async function setMemberStatus(formData: FormData) {
 }
 
 export async function addRelationship(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
 
-  const fromMemberId = str(formData, "fromMemberId");
-  const toMemberId = str(formData, "toMemberId");
-  const type = str(formData, "type");
+  let fromMemberId = str(formData, "fromMemberId");
+  let toMemberId = str(formData, "toMemberId");
+  let type = str(formData, "type");
   const parentKindRaw = str(formData, "parentKind");
+  const customLabel = str(formData, "customLabel").slice(0, CUSTOM_LABEL_MAX);
+
+  // "A is a child of B" is stored as "B is a parent of A" — PARENT_OF stays the
+  // single source of truth for lineage, so the engines don't change.
+  if (type === "CHILD_OF") {
+    [fromMemberId, toMemberId] = [toMemberId, fromMemberId];
+    type = "PARENT_OF";
+  }
 
   if (!fromMemberId || !toMemberId || fromMemberId === toMemberId) return;
   if (!RELATIONSHIP_TYPES.has(type)) return;
+  if (type === "CUSTOM" && !customLabel) redirect("/family?error=custom-label");
 
   // Both members must belong to the acting user's family.
   const endpoints = await prisma.member.findMany({
@@ -159,6 +186,26 @@ export async function addRelationship(formData: FormData) {
       : type === "PARENT_OF"
         ? "BIOLOGICAL"
         : null;
+
+  if (type === "CUSTOM") {
+    // One custom label per direction per pair; re-recording renames it.
+    await prisma.relationship.upsert({
+      where: {
+        fromMemberId_toMemberId_type: { fromMemberId, toMemberId, type: "CUSTOM" },
+      },
+      update: { customLabel },
+      create: {
+        familyId: member.familyId,
+        fromMemberId,
+        toMemberId,
+        type: "CUSTOM",
+        customLabel,
+      },
+    });
+    // Descriptive only — no lineage change, so no re-evaluation needed.
+    revalidatePath("/family");
+    return;
+  }
 
   // Unique constraint on (from, to, type) makes re-adding a no-op.
   await prisma.relationship
@@ -179,7 +226,7 @@ export async function addRelationship(formData: FormData) {
 
 /** Mark a marriage as ended (divorce). Lineage is unaffected. */
 export async function endRelationship(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
   const id = str(formData, "id");
   if (!id) return;
   await prisma.relationship.updateMany({
@@ -191,7 +238,7 @@ export async function endRelationship(formData: FormData) {
 }
 
 export async function deleteRelationship(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
   const id = str(formData, "id");
   if (!id) return;
 

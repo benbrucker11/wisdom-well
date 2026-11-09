@@ -3,6 +3,7 @@ import type { Member } from "@prisma/client";
 import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { describeFamilyFrom } from "@/lib/relationships";
+import { RelationshipForm } from "./_components/relationship-form";
 import { FamilyTreeDiagram } from "./_components/tree-diagram";
 import {
   addMember,
@@ -32,11 +33,33 @@ function isoDate(d: Date | null): string {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
-const RELATIONSHIP_VERB: Record<string, string> = {
-  PARENT_OF: "is a parent of",
-  SPOUSE_OF: "is married to",
-  SIBLING_OF: "is a sibling of",
-};
+/** How a stored relationship reads from the focused person's side. */
+function describeEdgeFrom(
+  focusId: string,
+  r: {
+    fromMemberId: string;
+    toMemberId: string;
+    type: string;
+    parentKind: string | null;
+    customLabel: string | null;
+  },
+): string {
+  const outgoing = r.fromMemberId === focusId;
+  const kind = r.parentKind ? PARENT_KIND_LABEL[r.parentKind] ?? "" : "";
+  switch (r.type) {
+    case "PARENT_OF":
+      return outgoing ? `parent of${kind}` : `child of${kind}`;
+    case "SPOUSE_OF":
+      return "married to";
+    case "SIBLING_OF":
+      return "sibling of";
+    case "CUSTOM":
+      // Recorded as "A — godfather — B": A is B's godfather.
+      return outgoing ? `${r.customLabel ?? "custom"} to` : `has as ${r.customLabel ?? "custom"}:`;
+    default:
+      return r.type;
+  }
+}
 
 function fullName(m: Member): string {
   return `${m.givenName} ${m.familyName}`.trim();
@@ -83,6 +106,10 @@ export default async function FamilyPage({
   ]);
 
   const stewardId = family.stewardMemberId;
+  const isSteward = stewardId === member.id;
+  const focusEdges = relationships.filter(
+    (r) => r.fromMemberId === focusId || r.toMemberId === focusId,
+  );
   const missingDob = members.filter((m) => !m.dateOfBirth);
 
   return (
@@ -101,6 +128,18 @@ export default async function FamilyPage({
           ) : null}
         </p>
       </header>
+
+      {sp.error === "steward-only" ? (
+        <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+          Only the family&rsquo;s steward can add people, send invites, or
+          change relationships.
+        </p>
+      ) : null}
+      {sp.error === "custom-label" ? (
+        <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+          Give the custom relationship a label, like &ldquo;godfather&rdquo;.
+        </p>
+      ) : null}
 
       {sp.error === "steward-departed" ? (
         <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
@@ -146,6 +185,7 @@ export default async function FamilyPage({
               type: r.type,
               parentKind: r.parentKind,
               endedAt: r.endedAt,
+              customLabel: r.customLabel,
             }))}
           />
         </div>
@@ -188,6 +228,7 @@ export default async function FamilyPage({
                   </span>
                   <span className="text-sm tabular-nums text-ink-soft">{span}</span>
                 </div>
+                {isSteward || m.id === member.id ? (
                 <details className="mt-1">
                   <summary className="cursor-pointer text-xs text-ink-soft">
                     Edit
@@ -220,7 +261,7 @@ export default async function FamilyPage({
                         Save
                       </button>
                     </form>
-                    {m.id !== stewardId ? (
+                    {isSteward && m.id !== stewardId ? (
                       <form action={setMemberStatus} className="text-xs">
                         <input type="hidden" name="id" value={m.id} />
                         <input
@@ -235,7 +276,7 @@ export default async function FamilyPage({
                         </button>
                       </form>
                     ) : null}
-                    {!m.userId && m.status !== "DEPARTED" ? (
+                    {isSteward && !m.userId && m.status !== "DEPARTED" ? (
                       <form
                         action={inviteMember}
                         className="flex flex-wrap items-center gap-2"
@@ -255,6 +296,7 @@ export default async function FamilyPage({
                     ) : null}
                   </div>
                 </details>
+                ) : null}
               </li>
             );
           })}
@@ -275,6 +317,58 @@ export default async function FamilyPage({
             <p className="mt-2 prose-entry">
               {view.grandchildren.map((g) => fullName(g)).join(", ")}
             </p>
+          ) : (
+            <p className="mt-2 text-ink-soft">None recorded yet.</p>
+          )}
+        </div>
+
+        <div className="card mt-4">
+          <h3 className="eyebrow">
+            {view.focus.givenName}&rsquo;s recorded relationships
+          </h3>
+          {focusEdges.length > 0 ? (
+            <ul className="mt-2 divide-y divide-mist">
+              {focusEdges.map((r) => {
+                const other = r.fromMemberId === focusId ? r.toMember : r.fromMember;
+                return (
+                  <li
+                    key={r.id}
+                    className="flex flex-wrap items-baseline justify-between gap-2 py-2"
+                  >
+                    <span>
+                      <span className="text-ink-soft">
+                        {describeEdgeFrom(focusId, r)}
+                      </span>{" "}
+                      <Link href={`/family?focus=${other.id}`}>{fullName(other)}</Link>
+                      {r.type === "SPOUSE_OF" && r.endedAt ? (
+                        <span className="text-ink-soft"> — marriage ended</span>
+                      ) : null}
+                    </span>
+                    {isSteward ? (
+                      <span className="flex items-center gap-3 text-sm">
+                        {r.type === "SPOUSE_OF" && !r.endedAt ? (
+                          <form action={endRelationship}>
+                            <input type="hidden" name="id" value={r.id} />
+                            <button type="submit" className="btn-text text-sm">
+                              Mark ended
+                            </button>
+                          </form>
+                        ) : null}
+                        <form action={deleteRelationship}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <button
+                            type="submit"
+                            className="btn-text text-sm hover:text-danger"
+                          >
+                            Remove
+                          </button>
+                        </form>
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
             <p className="mt-2 text-ink-soft">None recorded yet.</p>
           )}
@@ -321,7 +415,8 @@ export default async function FamilyPage({
         </section>
       ) : null}
 
-      {/* --- Editing the tree ---------------------------------------- */}
+      {/* --- Editing the tree (steward only) ------------------------------ */}
+      {isSteward ? (
       <section className="grid gap-10 md:grid-cols-2">
         <div>
           <h2 className="font-serif text-h2 text-ink">Add a person</h2>
@@ -371,117 +466,20 @@ export default async function FamilyPage({
               Add another person first.
             </p>
           ) : (
-            <form action={addRelationship} className="mt-4 space-y-3">
-              <select
-                name="fromMemberId"
-                required
-                defaultValue=""
-                className="field"
-              >
-                <option value="" disabled>
-                  Choose a person&hellip;
-                </option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {fullName(m)}
-                  </option>
-                ))}
-              </select>
-              <select
-                name="type"
-                required
-                defaultValue="PARENT_OF"
-                className="field"
-              >
-                <option value="PARENT_OF">is a parent of</option>
-                <option value="SPOUSE_OF">is married to</option>
-                <option value="SIBLING_OF">is a sibling of</option>
-              </select>
-              <select
-                name="parentKind"
-                defaultValue="BIOLOGICAL"
-                className="field text-sm"
-              >
-                <option value="BIOLOGICAL">— parent type: biological</option>
-                <option value="ADOPTIVE">— parent type: adoptive</option>
-                <option value="STEP">— parent type: step</option>
-                <option value="GUARDIAN">— parent type: guardian</option>
-              </select>
-              <select
-                name="toMemberId"
-                required
-                defaultValue=""
-                className="field"
-              >
-                <option value="" disabled>
-                  Choose a person&hellip;
-                </option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {fullName(m)}
-                  </option>
-                ))}
-              </select>
-              <button type="submit" className="btn btn-primary">
-                Record
-              </button>
-              <p className="text-sm text-ink-soft">
-                Only record <strong>parent</strong> links for lineage &mdash;
-                grandparent, cousin, and descendant are worked out automatically.
-                Adoptive parents count as full lineage; step and guardian are
-                held separately and can be excluded per release rule.
-              </p>
-            </form>
+            <RelationshipForm
+              action={addRelationship}
+              members={members.map((m) => ({ id: m.id, name: fullName(m) }))}
+              defaultFromId={focusId}
+            />
           )}
         </div>
       </section>
-
-      {relationships.length > 0 ? (
-        <section>
-          <h2 className="font-serif text-h2 text-ink">Recorded relationships</h2>
-          <ul className="mt-4 divide-y divide-mist border-y border-mist">
-            {relationships.map((r) => (
-              <li
-                key={r.id}
-                className="flex items-baseline justify-between px-1 py-3"
-              >
-                <span>
-                  {fullName(r.fromMember)}{" "}
-                  <span className="text-ink-soft">
-                    {RELATIONSHIP_VERB[r.type]}
-                  </span>{" "}
-                  {fullName(r.toMember)}
-                  {r.type === "PARENT_OF" && r.parentKind
-                    ? PARENT_KIND_LABEL[r.parentKind]
-                    : ""}
-                  {r.type === "SPOUSE_OF" && r.endedAt ? (
-                    <span className="text-ink-soft"> — marriage ended</span>
-                  ) : null}
-                </span>
-                <span className="flex items-center gap-3 text-sm">
-                  {r.type === "SPOUSE_OF" && !r.endedAt ? (
-                    <form action={endRelationship}>
-                      <input type="hidden" name="id" value={r.id} />
-                      <button type="submit" className="btn-text text-sm">
-                        Mark ended
-                      </button>
-                    </form>
-                  ) : null}
-                  <form action={deleteRelationship}>
-                    <input type="hidden" name="id" value={r.id} />
-                    <button
-                      type="submit"
-                      className="btn-text text-sm hover:text-danger"
-                    >
-                      Remove
-                    </button>
-                  </form>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      ) : (
+        <p className="card card-muted text-sm text-ink-soft">
+          The family&rsquo;s steward adds people, sends invites, and records
+          relationships. Ask them if someone is missing.
+        </p>
+      )}
     </div>
   );
 }

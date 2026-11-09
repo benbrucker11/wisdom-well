@@ -29,7 +29,7 @@ function formatDate(d: Date): string {
 
 const ERRORS: Record<string, string> = {
   norules: "Add at least one release rule before publishing.",
-  released: "This entry has already reached someone and can no longer be changed that way.",
+  released: "This wisdom has already reached someone and can no longer be changed that way.",
   rulefired: "That rule has already released to someone, so it can't be removed.",
   rule: "Something in that rule didn't look right. Try again.",
   immediate: "“Everyone now” must be immediate. Use “the whole family” for a conditional release.",
@@ -84,7 +84,7 @@ export default async function EntryPage({
     return (
       <article className="mx-auto max-w-2xl">
         <Link href="/entries" className="text-sm text-ink-soft">
-          &larr; Entries
+          &larr; Wisdom
         </Link>
         <h1 className="mt-3 font-serif text-h1 text-ink">{entry.title}</h1>
         <p className="mt-2 text-ink-soft">
@@ -130,7 +130,7 @@ export default async function EntryPage({
     <div className="mx-auto max-w-2xl space-y-12">
       <div>
         <Link href="/entries" className="text-sm text-ink-soft">
-          &larr; Entries
+          &larr; Wisdom
         </Link>
         <div className="mt-2 flex items-baseline justify-between">
           <h1 className="font-serif text-h2 text-ink">{full.title}</h1>
@@ -203,7 +203,7 @@ export default async function EntryPage({
 
       {/* Content editor */}
       <section>
-        <h2 className="font-serif text-lg text-ink">The entry</h2>
+        <h2 className="font-serif text-lg text-ink">Your wisdom</h2>
         <form action={updateEntry} className="mt-4 space-y-4">
           <input type="hidden" name="entryId" value={full.id} />
           <label className="block space-y-1">
@@ -323,7 +323,7 @@ export default async function EntryPage({
           <form action={deleteEntry}>
             <input type="hidden" name="entryId" value={full.id} />
             <button type="submit" className="btn btn-danger">
-              Delete entry
+              Delete
             </button>
           </form>
         ) : null}

@@ -31,7 +31,7 @@ export default async function ConfirmationsPage({
       <header>
         <h1 className="font-serif text-h1 text-ink">Confirmations</h1>
         <p className="mt-2 text-ink-soft">
-          Some entries wait on a life event. Nothing here reveals what an entry
+          Some wisdom waits on a life event. Nothing here reveals what a piece of wisdom
           says &mdash; only that one is waiting.
         </p>
       </header>
@@ -59,7 +59,7 @@ export default async function ConfirmationsPage({
                       <span className="block text-sm text-ink-soft">
                         {item.entryTitle
                           ? `for your entry “${item.entryTitle}”`
-                          : `an entry by ${item.authorName}`}
+                          : `wisdom from ${item.authorName}`}
                       </span>
                     </span>
                     <button type="submit" className="btn btn-primary btn-sm shrink-0">
@@ -74,7 +74,7 @@ export default async function ConfirmationsPage({
                       <span className="block text-sm text-ink-soft">
                         {item.entryTitle
                           ? `releases your entry “${item.entryTitle}”`
-                          : "releases one or more sealed entries"}
+                          : "releases sealed wisdom"}
                       </span>
                     </span>
                     {isSteward ? (

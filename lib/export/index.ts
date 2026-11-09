@@ -81,6 +81,7 @@ export async function buildFamilyExport(memberId: string): Promise<FamilyExport>
           type: r.type,
           to: nameFor(r.toMemberId),
           parentKind: r.parentKind,
+          customLabel: r.customLabel,
           endedAt: r.endedAt?.toISOString().slice(0, 10) ?? null,
         })),
       },

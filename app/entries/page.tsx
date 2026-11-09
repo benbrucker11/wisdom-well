@@ -26,13 +26,13 @@ export default async function EntriesPage() {
   return (
     <div className="space-y-12">
       <header className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="font-serif text-h1 text-ink">Entries</h1>
+        <h1 className="font-serif text-h1 text-ink">Wisdom</h1>
         <span className="flex items-baseline gap-3">
           <Link href="/interview" className="text-sm text-ink-soft no-underline hover:text-ink">
             Speak a memory
           </Link>
           <Link href="/entries/new" className="btn btn-primary no-underline">
-            Write a new entry
+            Add wisdom
           </Link>
         </span>
       </header>
@@ -61,10 +61,10 @@ export default async function EntriesPage() {
       </section>
 
       <section>
-        <h2 className="font-serif text-h2 text-ink">Your entries</h2>
+        <h2 className="font-serif text-h2 text-ink">Your wisdom</h2>
         {mine.length === 0 ? (
           <p className="mt-3 text-ink-soft">
-            You haven&rsquo;t written anything yet.
+            You haven&rsquo;t shared anything yet.
           </p>
         ) : (
           <ul className="mt-4 divide-y divide-mist border-y border-mist">

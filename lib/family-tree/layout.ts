@@ -33,6 +33,42 @@ export interface TreeLayoutResult {
   parentsOf: Map<string, string[]>;
   /** Deduped spouse pairs where both members are present. */
   spousePairs: [string, string][];
+  /** Deduped CUSTOM-relationship pairs where both members are present. */
+  customPairs: [string, string][];
+}
+
+/**
+ * Someone linked into the tree only by a CUSTOM relationship (a godfather, a
+ * family friend) has no lineage or marriage to position them. They sit in the
+ * same row as the person they're linked to, immediately beside them — the way
+ * a spouse does — instead of floating at the top of the tree.
+ */
+function customSatellites(
+  ids: string[],
+  edges: Edge[],
+  graph: ReturnType<typeof buildGraph>,
+): Map<string, string> {
+  const idSet = new Set(ids);
+  const anchored = (id: string) =>
+    graph.parentsOf(id).some((p) => idSet.has(p)) ||
+    graph.childrenOf(id).some((c) => idSet.has(c)) ||
+    graph.spousesOf(id).some((s) => idSet.has(s));
+
+  const satelliteOf = new Map<string, string>(); // satellite id -> partner id
+  for (const e of edges) {
+    if (e.type !== "CUSTOM") continue;
+    if (!idSet.has(e.fromMemberId) || !idSet.has(e.toMemberId)) continue;
+    for (const [me, other] of [
+      [e.fromMemberId, e.toMemberId],
+      [e.toMemberId, e.fromMemberId],
+    ]) {
+      if (satelliteOf.has(me)) continue;
+      // Only attach to someone who has a real place in the tree, so two
+      // unanchored people linked to each other don't chase one another.
+      if (!anchored(me) && anchored(other)) satelliteOf.set(me, other);
+    }
+  }
+  return satelliteOf;
 }
 
 function groupBySpouse(
@@ -66,6 +102,7 @@ function groupBySpouse(
 function computeGenerations(
   ids: string[],
   graph: ReturnType<typeof buildGraph>,
+  satelliteOf: Map<string, string> = new Map(),
 ): Map<string, number> {
   const idSet = new Set(ids);
   const memo = new Map<string, number>();
@@ -99,6 +136,10 @@ function computeGenerations(
     }
   }
 
+  for (const [satellite, partner] of satelliteOf) {
+    memo.set(satellite, memo.get(partner) ?? 0);
+  }
+
   return memo;
 }
 
@@ -108,13 +149,34 @@ export function computeFamilyTreeLayout(
 ): TreeLayoutResult {
   const ids = members.map((m) => m.id);
   if (ids.length === 0) {
-    return { nodes: [], rowCount: 0, maxRowWidth: 0, parentsOf: new Map(), spousePairs: [] };
+    return {
+      nodes: [],
+      rowCount: 0,
+      maxRowWidth: 0,
+      parentsOf: new Map(),
+      spousePairs: [],
+      customPairs: [],
+    };
   }
 
   const graph = buildGraph(edges);
   const idSet = new Set(ids);
   const byId = new Map(members.map((m) => [m.id, m]));
-  const generations = computeGenerations(ids, graph);
+  const satelliteOf = customSatellites(ids, edges, graph);
+  const generations = computeGenerations(ids, graph, satelliteOf);
+
+  const customPairSet = new Set<string>();
+  const customPairs: [string, string][] = [];
+  for (const e of edges) {
+    if (e.type !== "CUSTOM") continue;
+    const a = e.fromMemberId;
+    const b = e.toMemberId;
+    if (!idSet.has(a) || !idSet.has(b) || a === b) continue;
+    const key = [a, b].sort().join("|");
+    if (customPairSet.has(key)) continue;
+    customPairSet.add(key);
+    customPairs.push(a < b ? [a, b] : [b, a]);
+  }
 
   const parentsOf = new Map<string, string[]>();
   for (const id of ids) {
@@ -159,6 +221,7 @@ export function computeFamilyTreeLayout(
     const units: string[][] = [];
     for (const id of rowIds) {
       if (placed.has(id)) continue;
+      if (satelliteOf.has(id)) continue; // placed beside their partner below
       const spouse = spouseInRow.get(id);
       if (spouse && !placed.has(spouse)) {
         units.push([id, spouse].sort((a, b) => birthKey(a) - birthKey(b)));
@@ -193,12 +256,29 @@ export function computeFamilyTreeLayout(
       return nameKey(a[0]).localeCompare(nameKey(b[0]));
     });
 
-    let slot = 0;
+    // Drop each custom-only satellite in right after the unit holding its
+    // partner.
+    const satellitesByPartner = new Map<string, string[]>();
+    for (const id of rowIds) {
+      const partner = satelliteOf.get(id);
+      if (!partner) continue;
+      const list = satellitesByPartner.get(partner) ?? [];
+      list.push(id);
+      satellitesByPartner.set(partner, list);
+    }
+    const ordered: string[] = [];
     for (const unit of units) {
-      for (const id of unit) {
-        orderOf.set(id, slot);
-        slot += 1;
-      }
+      ordered.push(...unit);
+      for (const id of unit) ordered.push(...(satellitesByPartner.get(id) ?? []));
+    }
+    // A satellite whose partner sits in another row (can't happen given the
+    // generation pull above, but stay total) goes at the end.
+    for (const id of rowIds) if (!ordered.includes(id)) ordered.push(id);
+
+    let slot = 0;
+    for (const id of ordered) {
+      orderOf.set(id, slot);
+      slot += 1;
     }
   }
 
@@ -210,5 +290,5 @@ export function computeFamilyTreeLayout(
 
   const maxRowWidth = Math.max(...rows.map((r) => r.length));
 
-  return { nodes, rowCount, maxRowWidth, parentsOf, spousePairs };
+  return { nodes, rowCount, maxRowWidth, parentsOf, spousePairs, customPairs };
 }

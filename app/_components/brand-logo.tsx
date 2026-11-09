@@ -21,6 +21,49 @@ export function SymbolMark({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Header lockup: the symbol beside the wordmark-only file (package file 09).
+ * Two supplied assets placed side by side — not rebuilt from text — so the
+ * name stays legible at header size. The tagline lives on the landing page,
+ * where it can be read.
+ */
+export function HeaderLogo({ wordmarkWidth = 150 }: { wordmarkWidth?: number }) {
+  const wordmarkHeight = Math.round(wordmarkWidth * (255 / 1295));
+  const symbolHeight = Math.round(wordmarkHeight * 1.45);
+  const symbolWidth = Math.round(symbolHeight * (1024 / 792));
+  return (
+    <span className="flex items-center gap-2.5">
+      <Image
+        src="/brand/symbol.png"
+        alt=""
+        width={symbolWidth}
+        height={symbolHeight}
+        priority
+      />
+      <Image
+        src="/brand/wordmark.png"
+        alt="Wisdom Well"
+        width={wordmarkWidth}
+        height={wordmarkHeight}
+        priority
+      />
+    </span>
+  );
+}
+
+/** Tagline-only file (package file 10) — "Keep close what matters most." */
+export function TaglineMark({ width = 320 }: { width?: number }) {
+  const height = Math.round(width * (175 / 1135));
+  return (
+    <Image
+      src="/brand/tagline.png"
+      alt="Keep close what matters most."
+      width={width}
+      height={height}
+    />
+  );
+}
+
 /** Wide wordmark lockup — the header, or anywhere a horizontal strip fits. */
 export function HorizontalLogo({
   width = 200,
