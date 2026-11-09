@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 
 export async function createFamily(formData: FormData) {
   const user = await requireUser();
-  if (user.member) redirect("/family");
+  if (user.member) redirect("/home");
 
   const familyName = String(formData.get("familyName") ?? "").trim();
   const givenName = String(formData.get("givenName") ?? "").trim();
@@ -27,6 +27,8 @@ export async function createFamily(formData: FormData) {
         familyName: surname,
         dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
         userId: user.id,
+        // They typed these themselves just now.
+        detailsConfirmedAt: new Date(),
       },
     });
 
@@ -38,5 +40,5 @@ export async function createFamily(formData: FormData) {
     });
   });
 
-  redirect("/family");
+  redirect("/home");
 }

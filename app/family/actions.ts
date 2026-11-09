@@ -1,11 +1,13 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { RelationshipType } from "@prisma/client";
 import { issueMemberInvite, requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { sendJoinDeclinedEmail } from "@/lib/mail";
 import { evaluateFamily } from "@/lib/release";
 
 async function currentOrigin(): Promise<string> {
@@ -250,5 +252,65 @@ export async function deleteRelationship(formData: FormData) {
   // Deleting a relationship never removes an existing Release (those are
   // permanent) but keeps future evaluation consistent.
   await reevaluate(member.familyId);
+  revalidatePath("/family");
+}
+
+// --- Join link + join requests (steward) ---------------------------------
+
+/** Create the family's join link if it doesn't exist, or replace it. */
+export async function rotateJoinLink() {
+  const { member } = await requireStewardMember();
+  await prisma.family.update({
+    where: { id: member.familyId },
+    data: { joinCode: randomBytes(12).toString("base64url") },
+  });
+  revalidatePath("/family");
+}
+
+export async function approveJoinRequest(formData: FormData) {
+  const { member } = await requireStewardMember();
+  const id = str(formData, "id");
+  const request = await prisma.joinRequest.findFirst({
+    where: { id, familyId: member.familyId, status: "PENDING" },
+  });
+  if (!request) redirect("/family");
+
+  const created = await prisma.member.create({
+    data: {
+      familyId: member.familyId,
+      givenName: request.givenName,
+      familyName: request.familyName,
+    },
+  });
+  await prisma.joinRequest.update({
+    where: { id: request.id },
+    data: { status: "APPROVED", memberId: created.id, decidedAt: new Date() },
+  });
+  await reevaluate(member.familyId);
+
+  const result = await issueMemberInvite(created.id, request.email, await currentOrigin());
+  revalidatePath("/family");
+  // Land on the new person so the steward can place them in the tree.
+  redirect(
+    result.ok
+      ? `/family?focus=${created.id}&approved=1`
+      : `/family?focus=${created.id}&inviteError=${result.reason}`,
+  );
+}
+
+export async function declineJoinRequest(formData: FormData) {
+  const { member } = await requireStewardMember();
+  const id = str(formData, "id");
+  const request = await prisma.joinRequest.findFirst({
+    where: { id, familyId: member.familyId, status: "PENDING" },
+  });
+  if (!request) redirect("/family");
+  await prisma.joinRequest.update({
+    where: { id: request.id },
+    data: { status: "DECLINED", decidedAt: new Date() },
+  });
+  await sendJoinDeclinedEmail(request.email, member.family.name).catch((err) =>
+    console.error("join decline email failed", err),
+  );
   revalidatePath("/family");
 }

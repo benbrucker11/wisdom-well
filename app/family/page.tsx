@@ -3,11 +3,15 @@ import type { Member } from "@prisma/client";
 import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { describeFamilyFrom } from "@/lib/relationships";
+import { requestOrigin } from "@/lib/request-origin";
 import { RelationshipForm } from "./_components/relationship-form";
 import { FamilyTreeDiagram } from "./_components/tree-diagram";
 import {
   addMember,
   addRelationship,
+  approveJoinRequest,
+  declineJoinRequest,
+  rotateJoinLink,
   deleteRelationship,
   endRelationship,
   inviteMember,
@@ -82,6 +86,7 @@ export default async function FamilyPage({
     error?: string;
     invited?: string;
     inviteError?: string;
+    approved?: string;
   }>;
 }) {
   const { user, member } = await requireMember();
@@ -107,6 +112,16 @@ export default async function FamilyPage({
 
   const stewardId = family.stewardMemberId;
   const isSteward = stewardId === member.id;
+  const [joinRequests, origin] = isSteward
+    ? await Promise.all([
+        prisma.joinRequest.findMany({
+          where: { familyId: family.id, status: "PENDING" },
+          orderBy: { createdAt: "asc" },
+        }),
+        requestOrigin(),
+      ])
+    : [[], ""];
+  const joinUrl = family.joinCode ? `${origin}/join/${family.joinCode}` : null;
   const focusEdges = relationships.filter(
     (r) => r.fromMemberId === focusId || r.toMemberId === focusId,
   );
@@ -149,9 +164,84 @@ export default async function FamilyPage({
         </p>
       ) : null}
 
+      {sp.approved ? (
+        <p className="rounded-field border border-success/40 bg-success/10 p-3 text-sm text-success">
+          Approved &mdash; they&rsquo;ll get an email to set up their account. Now
+          record how they fit in the family below.
+        </p>
+      ) : null}
+
+      {isSteward ? (
+        <section id="join-requests" className="card space-y-5">
+          {joinRequests.length > 0 ? (
+            <div>
+              <h2 className="font-serif text-xl text-ink">
+                Asking to join ({joinRequests.length})
+              </h2>
+              <ul className="mt-3 divide-y divide-mist">
+                {joinRequests.map((r) => (
+                  <li key={r.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {r.givenName} {r.familyName}{" "}
+                        <span className="font-normal text-ink-soft">· {r.email}</span>
+                      </p>
+                      <p className="text-sm text-ink-soft">&ldquo;{r.relationNote}&rdquo;</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <form action={approveJoinRequest}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <button type="submit" className="btn btn-primary btn-sm">
+                          Approve
+                        </button>
+                      </form>
+                      <form action={declineJoinRequest}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <button type="submit" className="btn-text text-sm hover:text-danger">
+                          Decline
+                        </button>
+                      </form>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div>
+            <h2 className="font-serif text-xl text-ink">Join link</h2>
+            <p className="mt-1 text-sm text-ink-soft">
+              Share this by text or email with relatives who aren&rsquo;t here yet.
+              They can ask to join; you approve each request. It only shows your
+              family&rsquo;s name.
+            </p>
+            {joinUrl ? (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <input
+                  readOnly
+                  value={joinUrl}
+                  className="field min-w-0 flex-1 text-sm"
+                  aria-label="Family join link"
+                />
+                <form action={rotateJoinLink}>
+                  <button type="submit" className="btn-text text-sm">
+                    Replace link
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <form action={rotateJoinLink} className="mt-3">
+                <button type="submit" className="btn btn-secondary btn-sm">
+                  Create a join link
+                </button>
+              </form>
+            )}
+          </div>
+        </section>
+      ) : null}
+
       {sp.invited ? (
         <p className="rounded-field border border-success/40 bg-success/10 p-3 text-sm text-success">
-          Invite sent. They&rsquo;ll get a sign-in link by email.
+          Invite sent. They&rsquo;ll get an email to set their password and join.
         </p>
       ) : null}
       {sp.inviteError ? (

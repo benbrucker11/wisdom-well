@@ -3,31 +3,86 @@ import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "./db";
-import { sendInviteEmail, sendMagicLinkEmail } from "./mail";
+import type { TokenPurpose } from "@prisma/client";
+import {
+  sendInviteEmail,
+  sendMagicLinkEmail,
+  sendPasswordResetEmail,
+  sendPasswordSetupEmail,
+} from "./mail";
+import { afterFailedAttempt, hashPassword, isLocked, verifyPassword } from "./password";
 
 const SESSION_COOKIE = "ww_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const MAGIC_LINK_TTL_MS = 1000 * 60 * 15; // 15 minutes
+const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+const SET_PASSWORD_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+const RESET_TTL_MS = 1000 * 60 * 60; // 1 hour
 
 function newToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
-// --- Magic link ----------------------------------------------------------
-
-export async function issueMagicLink(email: string, origin: string): Promise<string> {
+async function issueToken(opts: {
+  email: string;
+  purpose: TokenPurpose;
+  ttlMs: number;
+  memberId?: string;
+}): Promise<string> {
   const token = newToken();
   await prisma.magicLinkToken.create({
     data: {
       token,
-      email,
-      expiresAt: new Date(Date.now() + MAGIC_LINK_TTL_MS),
+      email: opts.email,
+      purpose: opts.purpose,
+      memberId: opts.memberId ?? null,
+      expiresAt: new Date(Date.now() + opts.ttlMs),
     },
   });
+  return token;
+}
 
-  const url = `${origin}/api/auth/callback?token=${token}`;
+const callbackUrl = (origin: string, token: string) =>
+  `${origin}/api/auth/callback?token=${token}`;
+
+// --- Emailed links -----------------------------------------------------------
+
+/** "Email me a sign-in link instead" — kept as a fallback to passwords. */
+export async function issueMagicLink(email: string, origin: string): Promise<string> {
+  const token = await issueToken({ email, purpose: "SIGN_IN", ttlMs: MAGIC_LINK_TTL_MS });
+  const url = callbackUrl(origin, token);
   await sendMagicLinkEmail(email, url);
   return url;
+}
+
+/**
+ * "Forgot password?" Only sends when an account exists, but the caller shows
+ * the same message either way so the form can't be used to probe for emails.
+ */
+export async function issuePasswordReset(email: string, origin: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return;
+  const token = await issueToken({ email, purpose: "RESET_PASSWORD", ttlMs: RESET_TTL_MS });
+  await sendPasswordResetEmail(email, callbackUrl(origin, token));
+}
+
+/**
+ * The one-time "Wisdom Well now uses a password — set yours" email, for an
+ * account that has never set one. Records that it was sent so it goes once.
+ */
+export async function issuePasswordSetupPrompt(userId: string, origin: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.passwordHash || user.passwordPromptSentAt) return false;
+  const token = await issueToken({
+    email: user.email,
+    purpose: "SET_PASSWORD",
+    ttlMs: SET_PASSWORD_TTL_MS,
+  });
+  const result = await sendPasswordSetupEmail(user.email, callbackUrl(origin, token));
+  if (result.delivered || result.via === "none") {
+    await prisma.user.update({ where: { id: user.id }, data: { passwordPromptSentAt: new Date() } });
+  }
+  return result.delivered;
 }
 
 export type InviteResult =
@@ -35,9 +90,9 @@ export type InviteResult =
   | { ok: false; reason: "not_found" | "already_member" | "email_in_use" };
 
 /**
- * Invite an existing, login-less Member by email: issues a magic link tied to
- * that member so redemption links the two instead of sending the invitee
- * through "create a family" onboarding (spec: invite-by-email, Phase 5).
+ * Invite an existing, login-less Member by email: issues a link tied to that
+ * member so redemption links the two, then walks them through setting a
+ * password and confirming their details (spec: invite-by-email).
  */
 export async function issueMemberInvite(
   memberId: string,
@@ -56,26 +111,16 @@ export async function issueMemberInvite(
     if (linkedElsewhere) return { ok: false, reason: "email_in_use" };
   }
 
-  const token = newToken();
-  await prisma.magicLinkToken.create({
-    data: {
-      token,
-      email,
-      memberId,
-      expiresAt: new Date(Date.now() + MAGIC_LINK_TTL_MS),
-    },
-  });
-
-  const url = `${origin}/api/auth/callback?token=${token}`;
-  await sendInviteEmail(email, url);
+  const token = await issueToken({ email, purpose: "INVITE", ttlMs: INVITE_TTL_MS, memberId });
+  await sendInviteEmail(email, callbackUrl(origin, token));
   return { ok: true };
 }
 
 /**
- * Validate and burn a magic-link token, returning the matching User (creating
- * it on first sign-in). Returns null if the token is unknown, used, or expired.
- * If the token was issued as a member invite, links that Member to the User
- * (unless it was already linked in the meantime, which is left untouched).
+ * Validate and burn an emailed token, returning the matching User (creating it
+ * on first sign-in) and what the link was for. Returns null if the token is
+ * unknown, used, or expired. An INVITE links that Member to the User (unless it
+ * was already linked in the meantime, which is left untouched).
  */
 export async function consumeMagicLink(token: string) {
   const row = await prisma.magicLinkToken.findUnique({ where: { token } });
@@ -83,14 +128,17 @@ export async function consumeMagicLink(token: string) {
     return null;
   }
 
-  await prisma.magicLinkToken.update({
-    where: { id: row.id },
+  // Burn it atomically so a double-click can't redeem it twice.
+  const burned = await prisma.magicLinkToken.updateMany({
+    where: { id: row.id, usedAt: null },
     data: { usedAt: new Date() },
   });
+  if (burned.count === 0) return null;
 
   const user = await prisma.user.upsert({
     where: { email: row.email },
-    update: {},
+    // Proving control of the inbox clears any password lockout.
+    update: { failedLoginCount: 0, lockedUntil: null },
     create: { email: row.email },
   });
 
@@ -105,7 +153,85 @@ export async function consumeMagicLink(token: string) {
     }
   }
 
-  return user;
+  return { user, purpose: row.purpose };
+}
+
+// --- Passwords ---------------------------------------------------------------
+
+export type PasswordSignInResult =
+  | { ok: true; userId: string }
+  | { ok: false; reason: "invalid" | "locked" | "no_password" };
+
+/**
+ * Email + password sign-in. Five wrong passwords lock the account for 15
+ * minutes (an emailed sign-in link still works and clears the lock). An account
+ * that has never set a password gets "no_password" so the page can offer the
+ * emailed link instead of a misleading "wrong password".
+ */
+export async function signInWithPassword(
+  email: string,
+  password: string,
+): Promise<PasswordSignInResult> {
+  const user = await prisma.user.findUnique({ where: { email } });
+  const now = new Date();
+  if (!user) {
+    // Same work as a real check, so timing doesn't reveal which emails exist.
+    await verifyPassword(password, DUMMY_HASH);
+    return { ok: false, reason: "invalid" };
+  }
+  if (isLocked(user.lockedUntil, now)) return { ok: false, reason: "locked" };
+  if (!user.passwordHash) return { ok: false, reason: "no_password" };
+
+  if (await verifyPassword(password, user.passwordHash)) {
+    if (user.failedLoginCount > 0 || user.lockedUntil) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginCount: 0, lockedUntil: null },
+      });
+    }
+    return { ok: true, userId: user.id };
+  }
+
+  const next = afterFailedAttempt(user.failedLoginCount, now);
+  await prisma.user.update({ where: { id: user.id }, data: next });
+  return { ok: false, reason: next.lockedUntil ? "locked" : "invalid" };
+}
+
+// A well-formed hash that matches nothing, used only to equalise timing.
+const DUMMY_HASH = ["scrypt", "16384", Buffer.alloc(16).toString("base64"), Buffer.alloc(64).toString("base64")].join("$");
+
+/**
+ * Whether this user may set a new password without typing the current one:
+ * they have none yet, or they arrived in the last 30 minutes through an
+ * emailed set-password / reset / invite link (which proves the inbox).
+ */
+export async function canSetPasswordWithoutCurrent(user: {
+  email: string;
+  passwordHash: string | null;
+}): Promise<boolean> {
+  if (!user.passwordHash) return true;
+  const recent = await prisma.magicLinkToken.findFirst({
+    where: {
+      email: user.email,
+      purpose: { in: ["SET_PASSWORD", "RESET_PASSWORD", "INVITE"] },
+      usedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+    },
+    select: { id: true },
+  });
+  return recent != null;
+}
+
+export async function setUserPassword(userId: string, password: string): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      passwordHash: await hashPassword(password),
+      failedLoginCount: 0,
+      lockedUntil: null,
+      // Setting one any way counts as having answered the setup email.
+      passwordPromptSentAt: new Date(),
+    },
+  });
 }
 
 // --- Sessions ----------------------------------------------------------
@@ -191,6 +317,8 @@ export async function requireUser() {
 export async function requireMember() {
   const user = await requireUser();
   if (!user.member) redirect("/onboarding");
+  // An invited person reviews their own name and birthday once, first.
+  if (!user.member.detailsConfirmedAt) redirect("/welcome");
   return { user, member: user.member };
 }
 
@@ -208,4 +336,26 @@ export async function destroySession(): Promise<void> {
     await prisma.session.deleteMany({ where: { token } });
   }
   jar.delete(SESSION_COOKIE);
+}
+
+/**
+ * Daily-job sweep: the one-time "set your password" email to everyone who
+ * signed up in the email-link days and hasn't set one. Invitees mid-welcome are
+ * skipped — their invite already walks them through it.
+ */
+export async function sendPendingPasswordPrompts(origin: string, limit = 50): Promise<number> {
+  const users = await prisma.user.findMany({
+    where: {
+      passwordHash: null,
+      passwordPromptSentAt: null,
+      OR: [{ member: null }, { member: { detailsConfirmedAt: { not: null } } }],
+    },
+    select: { id: true },
+    take: limit,
+  });
+  let sent = 0;
+  for (const u of users) {
+    if (await issuePasswordSetupPrompt(u.id, origin).catch(() => false)) sent += 1;
+  }
+  return sent;
 }

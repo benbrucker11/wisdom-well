@@ -102,3 +102,7 @@ ALTER TABLE "Prompt" ADD CONSTRAINT "Prompt_askedOfMemberId_fkey" FOREIGN KEY ("
 -- AddForeignKey
 ALTER TABLE "JoinRequest" ADD CONSTRAINT "JoinRequest_familyId_fkey" FOREIGN KEY ("familyId") REFERENCES "Family"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+
+-- Data: people already signed in have, in effect, confirmed their details.
+-- Only invitees from now on are asked to review them on first sign-in.
+UPDATE "Member" SET "detailsConfirmedAt" = NOW() WHERE "userId" IS NOT NULL;

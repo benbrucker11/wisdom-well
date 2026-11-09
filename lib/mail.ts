@@ -1,9 +1,9 @@
 /**
  * Email delivery.
  *
- * Auth is passwordless (spec §8) — this product is meant for people in their
- * eighties. Delivery goes through Resend when RESEND_API_KEY is set, then SMTP
- * (SMTP_URL) as a fallback.
+ * Sign-in is email + password (Nov 2026), with an emailed sign-in link kept as
+ * a fallback for people who forget passwords. Delivery goes through Resend when
+ * RESEND_API_KEY is set, then SMTP (SMTP_URL) as a fallback.
  *
  * Every attempt logs its outcome, and any sign-in / handover link is always
  * echoed to the server log — this is a prototype, and being locked out because
@@ -29,6 +29,8 @@ export async function sendEmail(opts: {
   to: string;
   subject: string;
   text: string;
+  /** Extra headers, e.g. List-Unsubscribe on reminder emails. */
+  headers?: Record<string, string>;
 }): Promise<SendResult> {
   const from = process.env.MAIL_FROM ?? DEFAULT_FROM;
   const resendKey = process.env.RESEND_API_KEY;
@@ -44,6 +46,7 @@ export async function sendEmail(opts: {
         to: opts.to,
         subject: opts.subject,
         text: opts.text,
+        headers: opts.headers,
       });
       result = error
         ? { delivered: false, via: "resend", detail: `Resend error: ${error.name} — ${error.message}` }
@@ -63,6 +66,7 @@ export async function sendEmail(opts: {
         to: opts.to,
         subject: opts.subject,
         text: opts.text,
+        headers: opts.headers,
       });
       result = { delivered: true, via: "smtp", detail: "sent via SMTP" };
     } catch (err) {
@@ -103,6 +107,13 @@ export async function sendMagicLinkEmail(to: string, url: string): Promise<void>
   }
 }
 
+function echoLink(label: string, to: string, url: string, result: SendResult): void {
+  if (!result.delivered || process.env.MAIL_DEBUG !== "off") {
+    // eslint-disable-next-line no-console
+    console.log(`\n  ✦ Wisdom Well ${label} for ${to}\n    ${url}\n`);
+  }
+}
+
 export async function sendInviteEmail(to: string, url: string): Promise<void> {
   const result = await sendEmail({
     to,
@@ -111,16 +122,79 @@ export async function sendInviteEmail(to: string, url: string): Promise<void> {
       "A family member has added you to their family on Wisdom Well — a private place to",
       "keep the stories, lessons, and wisdom worth carrying forward.",
       "",
-      "Open this link to sign in and see what they've shared:",
+      "Open this link to set your password and see what they've shared:",
       url,
       "",
-      "The link works once and expires in 15 minutes. If you weren't expecting this, you",
+      "The link works once and expires in 7 days. If you weren't expecting this, you",
       "can ignore this message.",
     ].join("\n"),
   });
+  echoLink("invite link", to, url, result);
+}
 
-  if (!result.delivered || process.env.MAIL_DEBUG !== "off") {
-    // eslint-disable-next-line no-console
-    console.log(`\n  ✦ Wisdom Well invite link for ${to}\n    ${url}\n`);
-  }
+export async function sendPasswordSetupEmail(to: string, url: string): Promise<SendResult> {
+  const result = await sendEmail({
+    to,
+    subject: "Wisdom Well now uses a password — set yours",
+    text: [
+      "Wisdom Well now signs you in with your email and a password, so you don't have to",
+      "wait for a link every time.",
+      "",
+      "Open this link to set your password (at least 10 characters):",
+      url,
+      "",
+      "The link works once and expires in 7 days. Until you set one, you can still sign in",
+      "with an emailed link from the sign-in page.",
+    ].join("\n"),
+  });
+  echoLink("set-password link", to, url, result);
+  return result;
+}
+
+export async function sendPasswordResetEmail(to: string, url: string): Promise<void> {
+  const result = await sendEmail({
+    to,
+    subject: "Reset your Wisdom Well password",
+    text: [
+      "Someone asked to reset the password for this email address on Wisdom Well.",
+      "",
+      "Open this link to choose a new password:",
+      url,
+      "",
+      "The link works once and expires in 1 hour. If this wasn't you, you can ignore this",
+      "message — your password hasn't changed.",
+    ].join("\n"),
+  });
+  echoLink("password reset link", to, url, result);
+}
+
+export async function sendJoinRequestToSteward(
+  to: string,
+  opts: { requesterName: string; relationNote: string; familyName: string; reviewUrl: string },
+): Promise<void> {
+  await sendEmail({
+    to,
+    subject: `${opts.requesterName} asked to join ${opts.familyName} on Wisdom Well`,
+    text: [
+      `${opts.requesterName} followed your family's join link and asked to be added.`,
+      "",
+      `How they say they're related: ${opts.relationNote}`,
+      "",
+      "Approve or decline here:",
+      opts.reviewUrl,
+    ].join("\n"),
+  });
+}
+
+export async function sendJoinDeclinedEmail(to: string, familyName: string): Promise<void> {
+  await sendEmail({
+    to,
+    subject: "Your Wisdom Well request",
+    text: [
+      `Your request to join ${familyName} on Wisdom Well wasn't approved this time.`,
+      "",
+      "If you think this was a mistake, reach out to the family member who shared the",
+      "link with you.",
+    ].join("\n"),
+  });
 }
