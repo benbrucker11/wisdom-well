@@ -89,7 +89,7 @@ async function main() {
 
   const { prisma } = await import("../lib/db");
   const { putObject, getObject } = await import("../lib/storage");
-  const { startVoiceEntry, advanceTranscription } = await import("../lib/transcription");
+  const { startRecordedEntry, advanceTranscription } = await import("../lib/transcription");
 
   try {
     const family = await prisma.family.create({ data: { name: "Voice Test" } });
@@ -110,12 +110,14 @@ async function main() {
     const prompt = "Where did our family come from, and why did they leave?";
 
     console.log("Submitting to AssemblyAI…");
-    const { entryId } = await startVoiceEntry({
+    const { entryId } = await startRecordedEntry({
       familyId: family.id,
       authorMemberId: member.id,
-      audioUrl: stored.url,
-      audioBytes,
-      promptText: prompt,
+      kind: "voice",
+      recordingUrl: stored.url,
+      audio: audioBytes,
+      photoUrl: null,
+      prompt: { promptText: prompt, promptBucket: null, promptSubtopic: null, promptId: null },
     });
 
     const created = await prisma.entry.findUniqueOrThrow({ where: { id: entryId } });

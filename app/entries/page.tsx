@@ -28,7 +28,7 @@ export default async function EntriesPage() {
       <header className="flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="font-serif text-h1 text-ink">Wisdom</h1>
         <span className="flex items-baseline gap-3">
-          <Link href="/interview" className="text-sm text-ink-soft no-underline hover:text-ink">
+          <Link href="/entries/new?mode=voice" className="text-sm text-ink-soft no-underline hover:text-ink">
             Speak a memory
           </Link>
           <Link href="/entries/new" className="btn btn-primary no-underline">

@@ -198,3 +198,21 @@ export async function sendJoinDeclinedEmail(to: string, familyName: string): Pro
     ].join("\n"),
   });
 }
+
+export async function sendQuestionAskedEmail(
+  to: string,
+  opts: { askerName: string; question: string; answerUrl: string },
+): Promise<void> {
+  await sendEmail({
+    to,
+    subject: `${opts.askerName} asked you a question on Wisdom Well`,
+    text: [
+      `${opts.askerName} would love to hear your answer to this:`,
+      "",
+      `  "${opts.question}"`,
+      "",
+      "Write it, say it, or film it — whatever's easiest:",
+      opts.answerUrl,
+    ].join("\n"),
+  });
+}
