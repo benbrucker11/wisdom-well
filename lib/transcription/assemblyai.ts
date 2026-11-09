@@ -5,9 +5,10 @@ import { AssemblyAI } from "assemblyai";
 /**
  * AssemblyAI pre-recorded transcription (spec §6).
  *
- * The API key never leaves the server. Audio is uploaded straight to
- * AssemblyAI from our storage — we don't hand them a URL, because our media
- * routes are private and unreachable from their servers.
+ * The API key never leaves the server. Audio is either uploaded to AssemblyAI
+ * from our storage, or — for direct-to-bucket recordings — handed over as a
+ * short-lived signed URL to the private bucket (our /api/media routes need a
+ * session and are unreachable from their servers).
  *
  * Speaker diarization is on: in a guided interview a second person (spouse,
  * child, the person asking the questions) often chimes in, and we want the raw
@@ -24,8 +25,15 @@ export function transcriptionConfigured(): boolean {
   return Boolean(process.env.ASSEMBLYAI_API_KEY);
 }
 
-/** Submit audio for transcription without blocking. Returns the job id. */
-export async function submitTranscription(audio: Buffer): Promise<string> {
+/**
+ * Submit audio for transcription without blocking. Returns the job id.
+ *
+ * `audio` is either the bytes (uploaded to AssemblyAI by the SDK) or an
+ * https URL AssemblyAI fetches itself — a short-lived signed URL to our private
+ * bucket, for recordings too large to pass through a serverless function.
+ * (SDK 4.37: a string starting with "http" is sent as `audio_url` as-is.)
+ */
+export async function submitTranscription(audio: Buffer | string): Promise<string> {
   const transcript = await client().transcripts.submit({
     audio,
     // universal-3-5-pro is the current flagship; universal-2 is the broad

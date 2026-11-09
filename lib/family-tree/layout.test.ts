@@ -28,6 +28,7 @@ describe("computeFamilyTreeLayout", () => {
       maxRowWidth: 0,
       parentsOf: new Map(),
       spousePairs: [],
+      customPairs: [],
     });
   });
 
@@ -115,5 +116,32 @@ describe("computeFamilyTreeLayout", () => {
       [parent("dad", "kid1"), parent("mom", "kid1")],
     );
     expect(partial.parentsOf.get("kid1")).toEqual(["dad"]);
+  });
+});
+
+describe("custom relationships in the layout", () => {
+  const custom = (a: string, b: string): Edge => ({
+    fromMemberId: a,
+    toMemberId: b,
+    type: "CUSTOM",
+  });
+
+  it("seats a custom-only person in their partner's row, right beside them", () => {
+    const members = [mem("gp", "1940-01-01"), mem("mom", "1970-01-01"), mem("dad", "1972-01-01"), mem("godfather")];
+    const edges = [parent("gp", "mom"), married("mom", "dad"), custom("godfather", "mom")];
+    const result = computeFamilyTreeLayout(members, edges);
+    const node = (id: string) => result.nodes.find((n) => n.id === id)!;
+    expect(node("godfather").generation).toBe(node("mom").generation);
+    expect(result.customPairs).toEqual([["godfather", "mom"]]);
+    // the couple stays together; the satellite follows the couple
+    expect(Math.abs(node("mom").order - node("dad").order)).toBe(1);
+    expect(node("godfather").order).toBe(Math.max(node("mom").order, node("dad").order) + 1);
+  });
+
+  it("doesn't move someone who already has a place in the tree", () => {
+    const members = [mem("gp"), mem("kid"), mem("aunt")];
+    const edges = [parent("gp", "kid"), parent("gp", "aunt"), custom("aunt", "kid")];
+    const result = computeFamilyTreeLayout(members, edges);
+    expect(result.nodes.find((n) => n.id === "aunt")!.generation).toBe(1);
   });
 });

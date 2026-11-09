@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { HorizontalLogo } from "./brand-logo";
+import { HeaderLogo } from "./brand-logo";
 
 const TABS = [
-  { href: "/entries", label: "Entries" },
+  { href: "/home", label: "Home" },
+  { href: "/entries", label: "Wisdom" },
   { href: "/family", label: "Family" },
   { href: "/confirmations", label: "Confirmations" },
   { href: "/steward", label: "Steward" },
+  { href: "/settings", label: "Settings" },
 ];
 
 function NavTab({ href, label, active }: { href: string; label: string; active: boolean }) {
@@ -25,7 +27,7 @@ function NavTab({ href, label, active }: { href: string; label: string; active: 
       {label}
       <span
         aria-hidden="true"
-        className={`absolute inset-x-2 -bottom-px hidden h-[3px] rounded-full sm:block ${
+        className={`absolute inset-x-2 -bottom-px hidden h-[3px] rounded-full lg:block ${
           active ? "bg-well" : "bg-transparent"
         }`}
       />
@@ -46,20 +48,20 @@ export function SiteHeader({ showNav }: { showNav: boolean }) {
   return (
     <header className="border-b border-mist bg-white">
       <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-6 py-3">
-        <Link href="/" aria-label="Wisdom Well home" className="flex shrink-0 items-center">
-          <HorizontalLogo width={168} />
+        <Link href="/home" aria-label="Wisdom Well home" className="flex shrink-0 items-center">
+          <HeaderLogo />
         </Link>
 
         {showNav ? (
           <>
-            <nav aria-label="Primary" role="tablist" className="hidden items-center gap-1 sm:flex">
+            <nav aria-label="Primary" role="tablist" className="hidden items-center gap-1 lg:flex">
               {TABS.map((tab) => (
                 <NavTab key={tab.href} {...tab} active={isActive(tab.href)} />
               ))}
             </nav>
-            <div className="hidden items-center gap-3 sm:flex">
-              <Link href="/interview" className="btn btn-primary btn-sm no-underline">
-                Record a memory
+            <div className="hidden items-center gap-3 lg:flex">
+              <Link href="/entries/new" className="btn btn-primary btn-sm no-underline">
+                Add wisdom
               </Link>
               <form action="/api/auth/logout" method="post">
                 <button type="submit" className="btn-text text-sm">
@@ -72,7 +74,7 @@ export function SiteHeader({ showNav }: { showNav: boolean }) {
               onClick={() => setOpen((v) => !v)}
               aria-expanded={open}
               aria-controls="mobile-nav"
-              className="flex h-10 w-10 items-center justify-center rounded-md text-ink sm:hidden"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-ink lg:hidden"
               aria-label={open ? "Close menu" : "Open menu"}
             >
               <span className="relative block h-4 w-5">
@@ -92,7 +94,7 @@ export function SiteHeader({ showNav }: { showNav: boolean }) {
       </div>
 
       {showNav && open ? (
-        <div id="mobile-nav" className="border-t border-mist bg-white px-6 py-3 sm:hidden">
+        <div id="mobile-nav" className="border-t border-mist bg-white px-6 py-3 lg:hidden">
           <nav aria-label="Primary" className="flex flex-col">
             {TABS.map((tab) => (
               <Link
@@ -107,8 +109,8 @@ export function SiteHeader({ showNav }: { showNav: boolean }) {
             ))}
           </nav>
           <div className="mt-3 flex flex-col gap-3 border-t border-mist pt-3">
-            <Link href="/interview" className="btn btn-primary no-underline">
-              Record a memory
+            <Link href="/entries/new" className="btn btn-primary no-underline">
+              Add wisdom
             </Link>
             <form action="/api/auth/logout" method="post">
               <button type="submit" className="btn-text w-full text-left text-sm">

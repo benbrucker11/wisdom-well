@@ -1,10 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireMember } from "@/lib/auth";
-import { putObject } from "@/lib/storage";
+import { isStoragePrefix, putObject } from "@/lib/storage";
 
-const MAX_BYTES = 500 * 1024 * 1024; // 500 MB — uploaded video
-
-const PREFIXES = new Set(["entry-media", "raw-audio"]);
+// Fallback path for local-disk storage (dev). With S3/R2 configured, large
+// files go straight to the bucket via /api/uploads/presign instead.
+const MAX_BYTES = 500 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   // Any signed-in family member may upload; the file only becomes reachable
@@ -21,9 +21,7 @@ export async function POST(req: NextRequest) {
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: "file too large" }, { status: 413 });
   }
-  const prefix = PREFIXES.has(prefixRaw)
-    ? (prefixRaw as "entry-media" | "raw-audio")
-    : "entry-media";
+  const prefix = isStoragePrefix(prefixRaw) ? prefixRaw : "entry-media";
 
   const bytes = Buffer.from(await file.arrayBuffer());
 

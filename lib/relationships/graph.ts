@@ -8,7 +8,7 @@
  * `getDescendants(memberId, generations)`) live in ./index.ts.
  */
 
-export type RelType = "PARENT_OF" | "SPOUSE_OF" | "SIBLING_OF";
+export type RelType = "PARENT_OF" | "SPOUSE_OF" | "SIBLING_OF" | "CUSTOM";
 export type ParentKind = "BIOLOGICAL" | "ADOPTIVE" | "STEP" | "GUARDIAN";
 
 export interface Edge {
@@ -63,6 +63,9 @@ function addTo(map: Map<string, Set<string>>, key: string, value: string): void 
  *   present.
  * - SIBLING_OF is deliberately ignored here: sibling relationships are derived
  *   from shared parents so the tree has a single source of truth for lineage.
+ * - CUSTOM ("Godfather", "Like a sister") is descriptive only and is never
+ *   followed: not lineage, not a spouse, never a release-rule or succession
+ *   path.
  */
 export function buildGraph(edges: Edge[], opts: GraphOptions = {}): RelationGraph {
   const includeStep = opts.includeStep ?? true;
@@ -84,6 +87,9 @@ export function buildGraph(edges: Edge[], opts: GraphOptions = {}): RelationGrap
         break;
       case "SIBLING_OF":
         // Stored as a user-asserted fact but not used for traversal.
+        break;
+      case "CUSTOM":
+        // Descriptive label only — never traversed.
         break;
     }
   }

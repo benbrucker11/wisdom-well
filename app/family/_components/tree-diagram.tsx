@@ -16,9 +16,10 @@ export interface TreeDiagramMember {
 export interface TreeDiagramRelationship {
   fromMemberId: string;
   toMemberId: string;
-  type: "PARENT_OF" | "SPOUSE_OF" | "SIBLING_OF";
+  type: "PARENT_OF" | "SPOUSE_OF" | "SIBLING_OF" | "CUSTOM";
   parentKind: "BIOLOGICAL" | "ADOPTIVE" | "STEP" | "GUARDIAN" | null;
   endedAt: Date | null;
+  customLabel: string | null;
 }
 
 const NODE_W = 176;
@@ -95,6 +96,12 @@ export function FamilyTreeDiagram({
     return { x, y, top: rowTop(n.generation), bottom: rowTop(n.generation) + NODE_H };
   };
 
+  const customLabelFor = new Map<string, string>();
+  for (const r of relationships) {
+    if (r.type !== "CUSTOM" || !r.customLabel) continue;
+    customLabelFor.set([r.fromMemberId, r.toMemberId].sort().join("|"), r.customLabel);
+  }
+
   const parentEdges = relationships.filter(
     (r) => r.type === "PARENT_OF" && nodeById.has(r.fromMemberId) && nodeById.has(r.toMemberId),
   );
@@ -144,6 +151,56 @@ export function FamilyTreeDiagram({
                 stroke="var(--color-mist)"
                 strokeWidth={3}
               />
+            );
+          })}
+          {layout.customPairs.map(([a, b]) => {
+            const ca = centerOf(a);
+            const cb = centerOf(b);
+            if (!ca || !cb) return null;
+            const label = customLabelFor.get([a, b].sort().join("|")) ?? "";
+            let d: string;
+            let lx: number;
+            let ly: number;
+            if (ca.y === cb.y) {
+              // Same row: a dotted bridge between the two cards' edges, with a
+              // gentle arc so it never reads as a marriage line.
+              const [left, right] = ca.x < cb.x ? [ca, cb] : [cb, ca];
+              const x1 = left.x + NODE_W / 2;
+              const x2 = right.x - NODE_W / 2;
+              const y = left.y + 14;
+              d = `M ${x1} ${y} Q ${(x1 + x2) / 2} ${y + 22}, ${x2} ${y}`;
+              lx = (x1 + x2) / 2;
+              ly = y + 26;
+            } else {
+              const [upper, lower] = ca.y < cb.y ? [ca, cb] : [cb, ca];
+              const midY = (upper.bottom + lower.top) / 2;
+              d = `M ${upper.x + 24} ${upper.bottom} C ${upper.x + 24} ${midY}, ${lower.x + 24} ${midY}, ${lower.x + 24} ${lower.top}`;
+              lx = (upper.x + lower.x) / 2 + 24;
+              ly = midY - 4;
+            }
+            return (
+              <g key={`custom-${a}-${b}`}>
+                <path
+                  d={d}
+                  fill="none"
+                  stroke="var(--color-slate)"
+                  strokeWidth={1.75}
+                  strokeDasharray="2 5"
+                  strokeLinecap="round"
+                />
+                {label ? (
+                  <text
+                    x={lx}
+                    y={ly}
+                    textAnchor="middle"
+                    fontSize={11}
+                    fill="var(--color-slate)"
+                    style={{ fontStyle: "italic" }}
+                  >
+                    {label.length > 22 ? `${label.slice(0, 21)}…` : label}
+                  </text>
+                ) : null}
+              </g>
             );
           })}
         </svg>

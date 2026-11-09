@@ -4,6 +4,8 @@ import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { visibleEntry } from "@/lib/release";
 import { describeRule } from "@/lib/release/describe";
+import { findBucket, findSubtopic } from "@/lib/prompts";
+import { contentTypeForKey, keyFromMediaUrl } from "@/lib/storage";
 import { RuleBuilder } from "../_components/rule-builder";
 import {
   addRule,
@@ -29,35 +31,53 @@ function formatDate(d: Date): string {
 
 const ERRORS: Record<string, string> = {
   norules: "Add at least one release rule before publishing.",
-  released: "This entry has already reached someone and can no longer be changed that way.",
+  released: "This wisdom has already reached someone and can no longer be changed that way.",
   rulefired: "That rule has already released to someone, so it can't be removed.",
   rule: "Something in that rule didn't look right. Try again.",
   immediate: "“Everyone now” must be immediate. Use “the whole family” for a conditional release.",
   transcript: "Approve the transcript before publishing.",
+  media: "That file can't be attached here.",
   polish: "The AI polish didn't finish this time — your draft is unchanged. Try again in a moment.",
 };
 
-function MediaBlock({
-  mediaType,
-  mediaUrl,
-}: {
-  mediaType: string;
-  mediaUrl: string | null;
-}) {
+/** What kind of file a /api/media URL points at, from its stored key. */
+function kindOf(url: string): "image" | "video" | "audio" | null {
+  const key = keyFromMediaUrl(url);
+  if (!key) return null;
+  const type = contentTypeForKey(key);
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  return null;
+}
+
+/** An attachment (photo / uploaded video) — rendered by what the file is. */
+function MediaBlock({ mediaUrl }: { mediaUrl: string | null }) {
   if (!mediaUrl) return null;
-  if (mediaType === "IMAGE") {
+  const kind = kindOf(mediaUrl);
+  if (kind === "image") {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={mediaUrl} alt="" className="my-6 rounded-card border border-mist" />;
   }
-  if (mediaType === "VIDEO") {
+  if (kind === "video") {
     return (
-      <video src={mediaUrl} controls className="my-6 w-full rounded-card border border-mist" />
+      <video src={mediaUrl} controls playsInline className="my-6 w-full rounded-card border border-mist" />
     );
   }
-  if (mediaType === "AUDIO") {
-    return <audio src={mediaUrl} controls className="my-6 block" />;
+  if (kind === "audio") {
+    return <audio src={mediaUrl} controls className="my-6 block w-full" />;
   }
   return null;
+}
+
+/** The recording itself — voice or video — in the speaker's own voice. */
+function RecordingBlock({ url }: { url: string | null }) {
+  if (!url) return null;
+  return kindOf(url) === "video" || url.includes("/raw-video/") ? (
+    <video src={url} controls playsInline preload="metadata" className="w-full rounded-card bg-well-ink" />
+  ) : (
+    <audio src={url} controls preload="metadata" className="block w-full" />
+  );
 }
 
 export default async function EntryPage({
@@ -65,7 +85,7 @@ export default async function EntryPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; new?: string }>;
 }) {
   const { member } = await requireMember();
   const { id } = await params;
@@ -84,14 +104,24 @@ export default async function EntryPage({
     return (
       <article className="mx-auto max-w-2xl">
         <Link href="/entries" className="text-sm text-ink-soft">
-          &larr; Entries
+          &larr; Wisdom
         </Link>
         <h1 className="mt-3 font-serif text-h1 text-ink">{entry.title}</h1>
         <p className="mt-2 text-ink-soft">
           {entry.author.givenName} {entry.author.familyName}
           {release ? ` · released to you ${formatDate(release.releasedAt)}` : ""}
         </p>
-        <MediaBlock mediaType={entry.mediaType} mediaUrl={entry.mediaUrl} />
+        {entry.interviewPrompt ? (
+          <p className="mt-6 border-l-2 border-water pl-4 italic text-ink-soft">
+            {entry.interviewPrompt}
+          </p>
+        ) : null}
+        {entry.rawAudioUrl ? (
+          <div className="mt-6">
+            <RecordingBlock url={entry.rawAudioUrl} />
+          </div>
+        ) : null}
+        <MediaBlock mediaUrl={entry.mediaUrl} />
         <div className="mt-6 whitespace-pre-wrap prose-entry">{entry.body}</div>
       </article>
     );
@@ -125,12 +155,14 @@ export default async function EntryPage({
     .map((m) => ({ id: m.id, name: nameFor(m.id) }));
 
   const canEditFreely = full.status !== "RELEASED";
+  const suggestedAge =
+    findSubtopic(findBucket(full.promptBucket), full.promptSubtopic)?.suggestedReleaseAge ?? null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-12">
       <div>
         <Link href="/entries" className="text-sm text-ink-soft">
-          &larr; Entries
+          &larr; Wisdom
         </Link>
         <div className="mt-2 flex items-baseline justify-between">
           <h1 className="font-serif text-h2 text-ink">{full.title}</h1>
@@ -147,6 +179,19 @@ export default async function EntryPage({
       {sp.error && ERRORS[sp.error] ? (
         <p className="rounded-field border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
           {ERRORS[sp.error]}
+        </p>
+      ) : null}
+
+      {sp.new && full.status === "DRAFT" ? (
+        <p className="rounded-field border border-success/40 bg-success/10 p-3 text-sm text-success">
+          Saved as a private draft. Review it, then choose who receives it and
+          when, below.
+        </p>
+      ) : null}
+
+      {full.interviewPrompt ? (
+        <p className="border-l-2 border-water pl-4 italic text-ink-soft">
+          {full.interviewPrompt}
         </p>
       ) : null}
 
@@ -203,7 +248,7 @@ export default async function EntryPage({
 
       {/* Content editor */}
       <section>
-        <h2 className="font-serif text-lg text-ink">The entry</h2>
+        <h2 className="font-serif text-lg text-ink">Your wisdom</h2>
         <form action={updateEntry} className="mt-4 space-y-4">
           <input type="hidden" name="entryId" value={full.id} />
           <label className="block space-y-1">
@@ -219,10 +264,20 @@ export default async function EntryPage({
               className="field prose-entry"
             />
           </label>
-          <MediaUpload
-            initialUrl={full.mediaUrl ?? ""}
-            initialType={full.mediaType as "TEXT" | "IMAGE" | "VIDEO" | "AUDIO"}
-          />
+          {full.rawAudioUrl ? (
+            <MediaUpload
+              initialUrl={full.mediaUrl ?? ""}
+              initialType={full.mediaUrl ? "IMAGE" : "TEXT"}
+              label="Add a photo (optional)"
+              accept="image/*"
+              mediaTypeField={false}
+            />
+          ) : (
+            <MediaUpload
+              initialUrl={full.mediaUrl ?? ""}
+              initialType={full.mediaType as "TEXT" | "IMAGE" | "VIDEO" | "AUDIO"}
+            />
+          )}
           <button type="submit" className="btn btn-primary">
             Save changes
           </button>
@@ -233,15 +288,25 @@ export default async function EntryPage({
         <section>
           <h2 className="font-serif text-lg text-ink">Original recording</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            The recording in the speaker&rsquo;s own voice is kept permanently.
+            Kept permanently, in your own voice. Whoever receives this gets the
+            recording as well as the words.
           </p>
-          <audio src={full.rawAudioUrl} controls className="mt-3 block" />
+          <div className="mt-3">
+            <RecordingBlock url={full.rawAudioUrl} />
+          </div>
         </section>
       ) : null}
 
       {/* Release rules */}
       <section>
         <h2 className="font-serif text-lg text-ink">Who receives this, and when</h2>
+        {suggestedAge && full.status === "DRAFT" ? (
+          <p className="mt-2 rounded-field border border-sand bg-sand/20 p-3 text-sm text-ink">
+            Suggestion for this topic: release it when the person receiving it
+            turns {suggestedAge} or older (choose &ldquo;When they reach a certain
+            age&rdquo; below). It&rsquo;s your call.
+          </p>
+        ) : null}
         {full.rules.length === 0 ? (
           <p className="mt-2 text-ink-soft">No rules yet.</p>
         ) : (
@@ -323,7 +388,7 @@ export default async function EntryPage({
           <form action={deleteEntry}>
             <input type="hidden" name="entryId" value={full.id} />
             <button type="submit" className="btn btn-danger">
-              Delete entry
+              Delete
             </button>
           </form>
         ) : null}

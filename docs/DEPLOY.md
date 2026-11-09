@@ -35,6 +35,36 @@ Prisma uses the pooled one at runtime and the direct one for migrations
    `lib/storage.ts` switches to the S3 driver when `S3_BUCKET` is set. Files are
    still served through `/api/media/<key>`, which re-checks visibility per
    entry — so the bucket stays private.
+4. **CORS rule (required for recording and uploads).** Phones upload
+   recordings and videos straight to the bucket with short-lived signed URLs,
+   so the bucket must accept `PUT` from your site. R2 → your bucket →
+   Settings → CORS policy:
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://your-site.example.com"],
+       "AllowedMethods": ["PUT", "GET"],
+       "AllowedHeaders": ["content-type"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+   Use your real site URL (add `http://localhost:3000` too if you test against
+   R2 locally). Without this, recordings fail at "Saving your recording…".
+   Reads still go through `/api/media/<key>`: it checks who may see the item,
+   then redirects to a 10-minute signed link, so long videos stream and seek
+   straight from R2 while the bucket stays private.
+
+   Video is large: an hour of phone video is roughly 1–3 GB. Watch R2 usage
+   once people start filming.
+
+## 2b. APP_URL
+
+Set `APP_URL` to the site's public address, e.g. `https://wisdomwell.example.com`.
+The daily job uses it for links in emails it sends outside a web request
+(reminders, and the one-time "set your password" email to accounts created
+before passwords). On Netlify, `URL` is used if `APP_URL` is unset; on Vercel,
+the production URL is.
 
 ## 3. Email — Resend
 
@@ -58,11 +88,16 @@ Prisma uses the pooled one at runtime and the direct one for migrations
 Cost per entry: ~$0.02–0.04. Without the key, transcripts get a mechanical
 cleanup and the "Polish with AI" button on the entry does nothing.
 
+The same key powers "Ask me something different" and follow-up questions in
+the Add wisdom screen (a few cents per click at most). Without it, the button
+moves to the next sample question from the prompt library instead.
+
 ## 5. AssemblyAI
 
 Key from
 [assemblyai.com/dashboard/api-keys](https://www.assemblyai.com/dashboard/api-keys)
-→ `ASSEMBLYAI_API_KEY`.
+→ `ASSEMBLYAI_API_KEY`. Voice and video recordings are both transcribed; with
+R2, AssemblyAI reads the recording through a 24-hour signed link.
 
 ---
 

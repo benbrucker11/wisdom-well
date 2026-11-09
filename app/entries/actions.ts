@@ -12,7 +12,10 @@ import {
 } from "@prisma/client";
 import { requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { sendQuestionAskedEmail } from "@/lib/mail";
 import { evaluateFamily } from "@/lib/release";
+import { requestOrigin } from "@/lib/request-origin";
+import { addAskerDefaultRule, mediaUrlIsAttachable, resolvePromptContext } from "@/lib/wisdom";
 
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
@@ -41,7 +44,19 @@ export async function createEntry(formData: FormData) {
   const mediaTypeRaw = str(formData, "mediaType");
   const mediaUrl = str(formData, "mediaUrl");
 
-  if (!title) redirect("/entries/new?error=title");
+  if (!body && !mediaUrl) redirect("/entries/new?mode=write&error=empty");
+  if (!(await mediaUrlIsAttachable(mediaUrl || null, member.id))) {
+    redirect("/entries/new?mode=write&error=media");
+  }
+
+  const ctx = await resolvePromptContext(member, {
+    promptText: str(formData, "promptText"),
+    promptBucket: str(formData, "promptBucket"),
+    promptSubtopic: str(formData, "promptSubtopic"),
+    promptId: str(formData, "promptId"),
+    customPrompt: str(formData, "customPrompt"),
+    shareCustomPrompt: str(formData, "shareCustomPrompt") === "on",
+  });
 
   const mediaType = (Object.values(MediaType) as string[]).includes(mediaTypeRaw)
     ? (mediaTypeRaw as MediaType)
@@ -51,15 +66,70 @@ export async function createEntry(formData: FormData) {
     data: {
       familyId: member.familyId,
       authorMemberId: member.id,
-      title,
+      title:
+        title ||
+        (ctx.promptText ? ctx.promptText.replace(/[?.]$/, "").slice(0, 70) : "Untitled"),
       body,
       mediaType,
       mediaUrl: mediaUrl || null,
+      interviewPrompt: ctx.promptText,
+      promptBucket: ctx.promptBucket,
+      promptSubtopic: ctx.promptSubtopic,
+      promptId: ctx.promptId,
       status: "DRAFT",
     },
   });
+  if (ctx.askerMemberId) await addAskerDefaultRule(entry.id, ctx.askerMemberId);
 
-  redirect(`/entries/${entry.id}`);
+  redirect(`/entries/${entry.id}?new=1`);
+}
+
+// --- Questions for each other --------------------------------------------
+
+/** Ask a family member a question. It lands under "Questions for you". */
+export async function askQuestion(formData: FormData) {
+  const { member } = await requireMember();
+  const text = str(formData, "text").slice(0, 300);
+  const askedOfMemberId = str(formData, "askedOfMemberId");
+  const share = str(formData, "shareWithFamily") === "on";
+  if (!text) redirect("/home?asked=missing");
+
+  const target = await prisma.member.findFirst({
+    where: { id: askedOfMemberId, familyId: member.familyId, status: "ACTIVE" },
+    include: { user: true },
+  });
+  if (!target || target.id === member.id) redirect("/home?asked=missing");
+
+  await prisma.prompt.create({
+    data: {
+      familyId: member.familyId,
+      authorMemberId: member.id,
+      askedOfMemberId: target.id,
+      text,
+      visibility: share ? "FAMILY" : "PRIVATE",
+    },
+  });
+
+  if (target.user?.email && !target.dateOfDeath) {
+    await sendQuestionAskedEmail(target.user.email, {
+      askerName: `${member.givenName} ${member.familyName}`.trim(),
+      question: text,
+      answerUrl: `${await requestOrigin()}/home`,
+    }).catch((err) => console.error("question email failed", err));
+  }
+  revalidatePath("/home");
+  redirect("/home?asked=1");
+}
+
+/** Set aside a question someone asked you, without answering it. */
+export async function dismissQuestion(formData: FormData) {
+  const { member } = await requireMember();
+  const id = str(formData, "promptId");
+  await prisma.prompt.updateMany({
+    where: { id, askedOfMemberId: member.id, dismissedAt: null },
+    data: { dismissedAt: new Date() },
+  });
+  revalidatePath("/home");
 }
 
 export async function updateEntry(formData: FormData) {
@@ -77,7 +147,12 @@ export async function updateEntry(formData: FormData) {
   if ((Object.values(MediaType) as string[]).includes(mediaTypeRaw)) {
     data.mediaType = mediaTypeRaw as MediaType;
   }
-  if (formData.has("mediaUrl")) data.mediaUrl = mediaUrl || null;
+  if (formData.has("mediaUrl")) {
+    if (!(await mediaUrlIsAttachable(mediaUrl || null, entry.authorMemberId))) {
+      redirect(`/entries/${entry.id}?error=media`);
+    }
+    data.mediaUrl = mediaUrl || null;
+  }
 
   await prisma.entry.update({ where: { id: entry.id }, data });
   revalidatePath(`/entries/${entry.id}`);

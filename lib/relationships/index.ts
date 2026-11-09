@@ -116,12 +116,27 @@ export async function describeFamilyFrom(focusMemberId: string): Promise<FamilyR
     })),
   );
 
+  // CUSTOM links never affect lineage, but they describe the person better
+  // than "unrelated" ("godfather", "like a sister").
+  const customLabel = new Map<string, string>();
+  for (const r of relationships) {
+    if (r.type !== "CUSTOM" || !r.customLabel) continue;
+    if (r.fromMemberId === focusMemberId) customLabel.set(r.toMemberId, r.customLabel);
+    if (r.toMemberId === focusMemberId) customLabel.set(r.fromMemberId, r.customLabel);
+  }
+
   const relations = members
     .filter((m) => m.id !== focusMemberId)
-    .map((m) => ({
-      member: m,
-      relation: resolveRelationshipInGraph(graph, focusMemberId, m.id),
-    }));
+    .map((m) => {
+      const lineage = resolveRelationshipInGraph(graph, focusMemberId, m.id);
+      const custom = customLabel.get(m.id);
+      const relation = !custom
+        ? lineage
+        : lineage === "unrelated"
+          ? custom
+          : `${lineage} · ${custom}`;
+      return { member: m, relation };
+    });
 
   const grandchildIds = new Set(
     getDescendantsFromGraph(graph, focusMemberId, 2)

@@ -227,3 +227,26 @@ describe("ended marriages", () => {
     expect(resolveRelationship(g, "a", "bparent")).toBe("unrelated");
   });
 });
+
+describe("CUSTOM relationships", () => {
+  const edges: Edge[] = [
+    { fromMemberId: "god", toMemberId: "kid", type: "CUSTOM" },
+    { fromMemberId: "mom", toMemberId: "kid", type: "PARENT_OF" },
+  ];
+  const graph = buildGraph(edges);
+
+  it("are never lineage", () => {
+    expect(graph.parentsOf("kid")).toEqual(["mom"]);
+    expect(graph.childrenOf("god")).toEqual([]);
+    expect(getDescendants(graph, "god", 5)).toEqual([]);
+  });
+
+  it("are never treated as a spouse", () => {
+    expect(graph.spousesOf("god")).toEqual([]);
+    expect(graph.spousesOf("kid")).toEqual([]);
+  });
+
+  it("leave the people unrelated by lineage", () => {
+    expect(resolveRelationship(graph, "god", "kid")).toBe("unrelated");
+  });
+});

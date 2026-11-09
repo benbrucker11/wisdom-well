@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Libre_Baskerville } from "next/font/google";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
-import { HorizontalLogo, ReversedLogo } from "./_components/brand-logo";
+import { HeaderLogo, ReversedLogo } from "./_components/brand-logo";
 import { SiteHeader } from "./_components/site-header";
 import "./globals.css";
 
@@ -50,7 +50,7 @@ export default async function RootLayout({
           <header className="border-b border-mist bg-white">
             <div className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-3">
               <Link href="/" aria-label="Wisdom Well home" className="flex items-center">
-                <HorizontalLogo width={168} />
+                <HeaderLogo />
               </Link>
               {user ? (
                 <form action="/api/auth/logout" method="post">
@@ -58,7 +58,16 @@ export default async function RootLayout({
                     Sign out
                   </button>
                 </form>
-              ) : null}
+              ) : (
+                <div className="flex items-center gap-3">
+                  <Link href="/login" className="btn-text text-sm no-underline">
+                    Sign in
+                  </Link>
+                  <Link href="/signup" className="btn btn-primary btn-sm no-underline">
+                    Sign up
+                  </Link>
+                </div>
+              )}
             </div>
           </header>
         )}
@@ -75,8 +84,11 @@ export default async function RootLayout({
               </p>
             </div>
             <nav aria-label="Footer" className="flex flex-col items-center gap-2 text-sm sm:items-end">
+              <Link href="/home" className="text-mist no-underline hover:text-white">
+                Home
+              </Link>
               <Link href="/entries" className="text-mist no-underline hover:text-white">
-                Entries
+                Wisdom
               </Link>
               <Link href="/family" className="text-mist no-underline hover:text-white">
                 Family

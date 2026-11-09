@@ -78,7 +78,7 @@ export default async function StewardPage({
         <p className="mt-2 text-ink-soft">
           The steward looks after {family.name} — the family tree, invitations,
           and this line of succession. The steward does not read other people&rsquo;s
-          sealed entries.
+          sealed wisdom.
         </p>
       </header>
 
@@ -281,7 +281,7 @@ export default async function StewardPage({
         <section className="card card-muted">
           <h2 className="font-serif text-h2 text-ink">The well at a glance</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            For succession planning. You can see that entries exist; you cannot
+            For succession planning. You can see that wisdom exists; you cannot
             open ones that weren&rsquo;t released to you.
           </p>
           <dl className="mt-4 grid grid-cols-3 gap-4 text-center">
@@ -307,7 +307,7 @@ export default async function StewardPage({
               <ul className="mt-2 space-y-1 text-sm">
                 {unrunnable.map((u) => (
                   <li key={u.ruleId}>
-                    {u.entryTitle ? `“${u.entryTitle}”: ` : "An entry: "}
+                    {u.entryTitle ? `“${u.entryTitle}”: ` : "Wisdom: "}
                     {u.reason}
                   </li>
                 ))}
@@ -330,9 +330,9 @@ export default async function StewardPage({
       <section>
         <h2 className="font-serif text-h2 text-ink">Take your data with you</h2>
         <p className="mt-1 text-sm text-ink-soft">
-          A ZIP of the family tree and every entry you can see, with the original
+          A ZIP of the family tree and all the wisdom you can see, with the original
           audio and media — plain files, meant to outlive this software. Sealed
-          entries you can&rsquo;t see yet are not included.
+          wisdom you can&rsquo;t see yet is not included.
         </p>
         <a href="/api/family/export" className="btn btn-secondary mt-3 no-underline">
           Download export

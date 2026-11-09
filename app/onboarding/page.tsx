@@ -9,7 +9,7 @@ export default async function OnboardingPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const user = await requireUser();
-  if (user.member) redirect("/family");
+  if (user.member) redirect("/home");
   const sp = await searchParams;
 
   return (

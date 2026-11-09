@@ -20,41 +20,68 @@ import {
   reconciliationConfigured,
 } from "./reconcile";
 
-export { transcriptionConfigured } from "./assemblyai";
+import { transcriptionConfigured } from "./assemblyai";
+
+export { transcriptionConfigured };
 export { reconciliationConfigured } from "./reconcile";
 
 /**
- * Create the entry and kick off transcription. `audioUrl` is the permanent
- * storage URL for the raw recording; `audioBytes` is the same audio, uploaded
- * straight to AssemblyAI.
+ * Create recorded wisdom (voice or video) and, when transcription is
+ * configured, kick it off. `recordingUrl` is the permanent /api/media URL of
+ * the recording (stored as rawAudioUrl for both kinds — the recording is the
+ * artifact). `audio` is what AssemblyAI reads: the bytes, or a short-lived
+ * signed URL when the file went straight to the bucket. AssemblyAI takes the
+ * audio track of a video file the same way.
  */
-export async function startVoiceEntry(input: {
+export async function startRecordedEntry(input: {
   familyId: string;
   authorMemberId: string;
-  audioUrl: string;
-  audioBytes: Buffer;
-  promptText: string | null;
-}): Promise<{ entryId: string }> {
-  const jobId = await submitTranscription(input.audioBytes);
+  kind: "voice" | "video";
+  recordingUrl: string;
+  audio: Buffer | string | null;
+  photoUrl: string | null;
+  prompt: {
+    promptText: string | null;
+    promptBucket: string | null;
+    promptSubtopic: string | null;
+    promptId: string | null;
+  };
+}): Promise<{ entryId: string; transcribing: boolean }> {
+  // A transcription outage must never lose the recording: the entry is created
+  // either way, and the author can write it up by hand.
+  let jobId: string | null = null;
+  if (input.audio != null && transcriptionConfigured()) {
+    jobId = await submitTranscription(input.audio).catch((err) => {
+      console.error("submitTranscription failed; saving the recording untranscribed", err);
+      return null;
+    });
+  }
 
+  const promptText = input.prompt.promptText;
   const entry = await prisma.entry.create({
     data: {
       familyId: input.familyId,
       authorMemberId: input.authorMemberId,
-      title: input.promptText
-        ? input.promptText.replace(/[?.]$/, "").slice(0, 70)
-        : "Untitled recording",
+      title: promptText
+        ? promptText.replace(/[?.]$/, "").slice(0, 70)
+        : input.kind === "video"
+          ? "Untitled video"
+          : "Untitled recording",
       body: "",
-      mediaType: "AUDIO",
-      rawAudioUrl: input.audioUrl,
-      transcriptStatus: "PROCESSING",
+      mediaType: input.kind === "video" ? "VIDEO" : "AUDIO",
+      mediaUrl: input.photoUrl,
+      rawAudioUrl: input.recordingUrl,
+      transcriptStatus: jobId ? "PROCESSING" : "NONE",
       transcriptJobId: jobId,
-      interviewPrompt: input.promptText,
+      interviewPrompt: promptText,
+      promptBucket: input.prompt.promptBucket,
+      promptSubtopic: input.prompt.promptSubtopic,
+      promptId: input.prompt.promptId,
       status: "DRAFT",
     },
   });
 
-  return { entryId: entry.id };
+  return { entryId: entry.id, transcribing: jobId != null };
 }
 
 export type TranscriptionState =

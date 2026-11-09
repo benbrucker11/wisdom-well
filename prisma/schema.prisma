@@ -9,7 +9,7 @@
 // Entry.rawAudioUrl / transcriptRaw / transcriptStatus) but add no models yet.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // native  — local dev (macOS / whatever the machine is)
   // debian-openssl-3.0.x — the Netlify / Vercel build image (Ubuntu 24.04)
   // rhel-openssl-3.0.x   — the serverless function runtime (Amazon Linux 2023)
@@ -30,14 +30,39 @@ datasource db {
 // complete. `member` is nullable only for the brief window between first
 // sign-in and creating/joining a family.
 model User {
-  id         String    @id @default(cuid())
-  email      String    @unique
-  createdAt  DateTime  @default(now())
+  id                   String            @id @default(cuid())
+  email                String            @unique
+  createdAt            DateTime          @default(now())
   // Bumped (throttled) whenever the user makes an authenticated request. Drives
   // steward-inactivity detection in Phase 3.
-  lastSeenAt DateTime  @default(now())
-  member     Member?
-  sessions   Session[]
+  lastSeenAt           DateTime          @default(now())
+  // scrypt hash ("scrypt$<salt>$<hash>"). Null until the person sets one — they
+  // can still sign in with an emailed link.
+  passwordHash         String?
+  failedLoginCount     Int               @default(0)
+  lockedUntil          DateTime?
+  // When the one-time "Wisdom Well now uses a password" email went out.
+  passwordPromptSentAt DateTime?
+  reminderFrequency    ReminderFrequency @default(BIWEEKLY)
+  lastRemindedAt       DateTime?
+  // Opaque token for the one-click "stop these emails" link (set lazily).
+  unsubscribeToken     String?           @unique
+  member               Member?
+  sessions             Session[]
+}
+
+enum ReminderFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  OFF
+}
+
+enum TokenPurpose {
+  SIGN_IN // passwordless sign-in link
+  INVITE // family invite; links the member, then set password + confirm details
+  SET_PASSWORD // one-time "set your password" email to existing users
+  RESET_PASSWORD // "forgot password"
 }
 
 model Session {
@@ -55,14 +80,15 @@ model Session {
 // When issued as a family invite, memberId ties the token to the pre-created
 // Member row it should link on redemption (spec: invite-by-email, Phase 5).
 model MagicLinkToken {
-  id        String    @id @default(cuid())
-  token     String    @unique
+  id        String       @id @default(cuid())
+  token     String       @unique
   email     String
   memberId  String?
-  member    Member?   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member    Member?      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  purpose   TokenPurpose @default(SIGN_IN)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime  @default(now())
+  createdAt DateTime     @default(now())
 
   @@index([email])
   @@index([memberId])
@@ -99,6 +125,10 @@ model Family {
   entries       Entry[]
   successors    Successor[]
   transfers     StewardTransfer[]
+  prompts       Prompt[]
+  joinRequests  JoinRequest[]
+  // Shareable secret for the "ask to join" link (set lazily; rotatable).
+  joinCode      String?           @unique
 }
 
 enum MembershipStatus {
@@ -113,19 +143,21 @@ enum MembershipStatus {
 // A person in the family tree. May or may not have a login: children, deceased
 // ancestors, and not-yet-born descendants exist as records without a `user`.
 model Member {
-  id          String           @id @default(cuid())
-  familyId    String
-  family      Family           @relation("FamilyMembers", fields: [familyId], references: [id], onDelete: Cascade)
-  givenName   String
-  familyName  String
+  id                 String           @id @default(cuid())
+  familyId           String
+  family             Family           @relation("FamilyMembers", fields: [familyId], references: [id], onDelete: Cascade)
+  givenName          String
+  familyName         String
   // Required before any age-based release rule can evaluate against this person.
-  dateOfBirth DateTime?
-  dateOfDeath DateTime?
-  userId      String?          @unique
-  user        User?            @relation(fields: [userId], references: [id])
-  status      MembershipStatus @default(ACTIVE)
-  departedAt  DateTime?
-  createdAt   DateTime         @default(now())
+  dateOfBirth        DateTime?
+  dateOfDeath        DateTime?
+  userId             String?          @unique
+  user               User?            @relation(fields: [userId], references: [id])
+  status             MembershipStatus @default(ACTIVE)
+  departedAt         DateTime?
+  // Set once an invited person has reviewed their own name / birthday.
+  detailsConfirmedAt DateTime?
+  createdAt          DateTime         @default(now())
 
   stewardOf         Family?        @relation("FamilySteward")
   relationshipsFrom Relationship[] @relation("RelationshipFrom")
@@ -141,6 +173,9 @@ model Member {
   transfersTo   StewardTransfer[] @relation("TransferTo")
   invites       MagicLinkToken[]
 
+  promptsAuthored Prompt[] @relation("PromptAuthor")
+  promptsAskedOf  Prompt[] @relation("PromptAskedOf")
+
   @@index([familyId])
 }
 
@@ -148,6 +183,9 @@ enum RelationshipType {
   PARENT_OF
   SPOUSE_OF
   SIBLING_OF
+  // A descriptive, user-labelled link ("Godfather", "Like a sister"). Never
+  // lineage, never a release-rule target, never used for succession.
+  CUSTOM
 }
 
 // How a PARENT_OF edge came to be. Lineage traversal treats BIOLOGICAL and
@@ -183,6 +221,8 @@ model Relationship {
   // Set for SPOUSE_OF edges when the marriage has ended (divorce). Lineage is
   // unaffected; a former spouse's relatives are no longer counted as in-laws.
   endedAt      DateTime?
+  // The label for a CUSTOM relationship.
+  customLabel  String?
   createdAt    DateTime         @default(now())
 
   @@unique([fromMemberId, toMemberId, type])
@@ -232,7 +272,14 @@ model Entry {
   transcriptRaw    String?
   transcriptStatus TranscriptStatus @default(NONE)
   transcriptJobId  String? // AssemblyAI transcript id while transcriptStatus = PROCESSING
-  interviewPrompt  String? // the guided question this recording answered, if any
+  interviewPrompt  String? // the question this wisdom answers, if any (any mode, not only voice)
+  // Which prompt-library bucket / subtopic it answers (slugs from lib/prompts.ts).
+  // Drives "areas to explore" and reminder picks.
+  promptBucket     String?
+  promptSubtopic   String?
+  // Set when it answers a family-written prompt (custom / shared / asked).
+  promptId         String?
+  prompt           Prompt?          @relation(fields: [promptId], references: [id], onDelete: SetNull)
   // When the Claude reconciliation pass last ran. Null after a voice entry
   // reaches DRAFT via the mechanical fallback (e.g. the inline attempt hit a
   // serverless timeout); the daily job and a manual "polish" button pick these
@@ -250,6 +297,7 @@ model Entry {
   @@index([familyId])
   @@index([authorMemberId])
   @@index([status])
+  @@index([promptId])
 }
 
 enum ReleaseTargetType {
@@ -413,6 +461,63 @@ model StewardTransfer {
   completedAt       DateTime?
   cancelledAt       DateTime?
   cancelReason      StewardTransferCancelReason?
+
+  @@index([familyId, status])
+}
+
+// --- Family-written prompts ----------------------------------------------
+
+enum PromptVisibility {
+  PRIVATE // just for the author
+  FAMILY // added to the family's shared prompts
+}
+
+// A question written by a family member. It can be private, shared with the
+// whole family, and/or asked of one specific person (askedOfMemberId), who
+// then sees it under "Questions for you".
+model Prompt {
+  id              String           @id @default(cuid())
+  familyId        String
+  family          Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  authorMemberId  String
+  author          Member           @relation("PromptAuthor", fields: [authorMemberId], references: [id], onDelete: Cascade)
+  askedOfMemberId String?
+  askedOf         Member?          @relation("PromptAskedOf", fields: [askedOfMemberId], references: [id], onDelete: SetNull)
+  text            String
+  visibility      PromptVisibility @default(PRIVATE)
+  // Set when the asked person dismisses it without answering.
+  dismissedAt     DateTime?
+  createdAt       DateTime         @default(now())
+
+  entries Entry[]
+
+  @@index([familyId])
+  @@index([askedOfMemberId])
+}
+
+// --- Join requests -----------------------------------------------------------
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
+// Someone who followed a family's join link and asked to be added. Only the
+// steward sees these; approving places them in the tree and sends an invite.
+model JoinRequest {
+  id           String            @id @default(cuid())
+  familyId     String
+  family       Family            @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  givenName    String
+  familyName   String
+  email        String
+  relationNote String // "how you're related", free text
+  status       JoinRequestStatus @default(PENDING)
+  // The member created on approval.
+  memberId     String?
+  createdAt    DateTime          @default(now())
+  decidedAt    DateTime?
 
   @@index([familyId, status])
 }

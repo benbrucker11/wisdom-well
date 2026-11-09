@@ -29,6 +29,23 @@ four phases (see `README.md`). Next.js App Router + TypeScript + Postgres/Prisma
   `import "server-only"`** — it throws under plain Node. Auth is the exception
   (never imported by scripts). Use a comment noting the module is server-only in
   practice.
+- **Prompt library** (`lib/prompts.ts`): buckets → subtopics → questions, the
+  reviewed source is `docs/specs/prompt-library-draft.md`. `gentle` buckets
+  (Loss) and `optional` ones (Politics) are never suggested unprompted. Wisdom
+  records `promptBucket` / `promptSubtopic` / `promptId`; resolve them through
+  `resolvePromptContext` in `lib/wisdom.ts` for written and recorded wisdom alike.
+- **Auth** is email + password (`lib/password.ts`, scrypt), with emailed links
+  kept as a fallback. `MagicLinkToken.purpose` decides where a link lands.
+  `requireMember` sends invitees to `/welcome` until `detailsConfirmedAt`.
+- **Tree edits are steward-only** (`requireStewardMember` in
+  `app/family/actions.ts`). `CUSTOM` relationships are labels only — never
+  lineage; `buildGraph` ignores them.
+- **Recordings**: `rawAudioUrl` holds the voice *or* video recording
+  (`raw-audio/` vs `raw-video/` keys); `mediaUrl` is an attachment rendered by
+  file type. With S3 set, uploads are direct (signed PUT) and `/api/media`
+  redirects to a signed GET after the visibility check.
+- The dashboard must never reveal that someone added wisdom the viewer can't
+  see — family news is people, dates, and family prompts only.
 - Tests: `npm test` is pure and needs no DB. `npm run e2e` drives the real
   engines against a throwaway Postgres (`embedded-postgres`).
 - Secrets (`ASSEMBLYAI_API_KEY`, `ANTHROPIC_API_KEY`, SMTP, S3) are proxied
@@ -42,11 +59,16 @@ the API has changed; do not rely on memorized parameter names. Current usage
 lives in `lib/transcription/assemblyai.ts`: the `assemblyai` Node SDK,
 `transcripts.submit()` (non-blocking) + `transcripts.get()` (poll),
 `speech_models: ["universal-3-5-pro", "universal-2"]`, `speaker_labels: true`,
-raw key in the `Authorization` header (no `Bearer`).
+raw key in the `Authorization` header (no `Bearer`). `submitTranscription`
+takes bytes or an https URL (signed R2 link) — the SDK sends a URL string as
+`audio_url`.
 
 ## Anthropic
 
 Reconciliation (`lib/transcription/reconcile.ts`) uses `@anthropic-ai/sdk`,
 `new Anthropic()` (resolves the key from the environment), model
 `claude-opus-5`, adaptive thinking. It degrades to a mechanical cleanup when no
-credential is present. See the `claude-api` skill before changing it.
+credential is present. Question generation (`lib/prompt-generation.ts`) uses
+`claude-opus-5-5` at low effort with structured output and server-side
+refusal fallbacks (`fallbacks: "default"`), and falls back to the sample list.
+See the `claude-api` skill before changing either.

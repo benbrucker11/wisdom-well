@@ -1,11 +1,13 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { RelationshipType } from "@prisma/client";
 import { issueMemberInvite, requireMember } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { sendJoinDeclinedEmail } from "@/lib/mail";
 import { evaluateFamily } from "@/lib/release";
 
 async function currentOrigin(): Promise<string> {
@@ -16,6 +18,21 @@ async function currentOrigin(): Promise<string> {
 }
 
 const RELATIONSHIP_TYPES = new Set<string>(Object.values(RelationshipType));
+
+/**
+ * Shaping the tree — adding people, inviting them, recording or removing
+ * relationships, marking someone as having left — is the steward's job
+ * (decided Nov 2026: steward-only for now). Everyone can still view the tree.
+ */
+async function requireStewardMember() {
+  const ctx = await requireMember();
+  if (ctx.member.family.stewardMemberId !== ctx.member.id) {
+    redirect("/family?error=steward-only");
+  }
+  return ctx;
+}
+
+const CUSTOM_LABEL_MAX = 40;
 
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
@@ -36,7 +53,7 @@ async function reevaluate(familyId: string) {
 }
 
 export async function addMember(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
 
   const givenName = str(formData, "givenName");
   const surname = str(formData, "surname");
@@ -67,7 +84,7 @@ export async function addMember(formData: FormData) {
 
 /** Invite (or re-invite) an existing, login-less member by email. */
 export async function inviteMember(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
   const memberId = str(formData, "memberId");
   const email = str(formData, "email").toLowerCase();
 
@@ -94,6 +111,9 @@ export async function updateMember(formData: FormData) {
     select: { id: true },
   });
   if (!target) return;
+  // The steward can correct anyone; everyone else can correct only themselves.
+  const isSteward = member.family.stewardMemberId === member.id;
+  if (!isSteward && id !== member.id) redirect("/family?error=steward-only");
 
   await prisma.member.update({
     where: { id },
@@ -110,7 +130,7 @@ export async function updateMember(formData: FormData) {
 const PARENT_KINDS = new Set(["BIOLOGICAL", "ADOPTIVE", "STEP", "GUARDIAN"]);
 
 export async function setMemberStatus(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
   const id = str(formData, "id");
   const status = str(formData, "status") === "DEPARTED" ? "DEPARTED" : "ACTIVE";
 
@@ -136,15 +156,24 @@ export async function setMemberStatus(formData: FormData) {
 }
 
 export async function addRelationship(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
 
-  const fromMemberId = str(formData, "fromMemberId");
-  const toMemberId = str(formData, "toMemberId");
-  const type = str(formData, "type");
+  let fromMemberId = str(formData, "fromMemberId");
+  let toMemberId = str(formData, "toMemberId");
+  let type = str(formData, "type");
   const parentKindRaw = str(formData, "parentKind");
+  const customLabel = str(formData, "customLabel").slice(0, CUSTOM_LABEL_MAX);
+
+  // "A is a child of B" is stored as "B is a parent of A" — PARENT_OF stays the
+  // single source of truth for lineage, so the engines don't change.
+  if (type === "CHILD_OF") {
+    [fromMemberId, toMemberId] = [toMemberId, fromMemberId];
+    type = "PARENT_OF";
+  }
 
   if (!fromMemberId || !toMemberId || fromMemberId === toMemberId) return;
   if (!RELATIONSHIP_TYPES.has(type)) return;
+  if (type === "CUSTOM" && !customLabel) redirect("/family?error=custom-label");
 
   // Both members must belong to the acting user's family.
   const endpoints = await prisma.member.findMany({
@@ -159,6 +188,26 @@ export async function addRelationship(formData: FormData) {
       : type === "PARENT_OF"
         ? "BIOLOGICAL"
         : null;
+
+  if (type === "CUSTOM") {
+    // One custom label per direction per pair; re-recording renames it.
+    await prisma.relationship.upsert({
+      where: {
+        fromMemberId_toMemberId_type: { fromMemberId, toMemberId, type: "CUSTOM" },
+      },
+      update: { customLabel },
+      create: {
+        familyId: member.familyId,
+        fromMemberId,
+        toMemberId,
+        type: "CUSTOM",
+        customLabel,
+      },
+    });
+    // Descriptive only — no lineage change, so no re-evaluation needed.
+    revalidatePath("/family");
+    return;
+  }
 
   // Unique constraint on (from, to, type) makes re-adding a no-op.
   await prisma.relationship
@@ -179,7 +228,7 @@ export async function addRelationship(formData: FormData) {
 
 /** Mark a marriage as ended (divorce). Lineage is unaffected. */
 export async function endRelationship(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
   const id = str(formData, "id");
   if (!id) return;
   await prisma.relationship.updateMany({
@@ -191,7 +240,7 @@ export async function endRelationship(formData: FormData) {
 }
 
 export async function deleteRelationship(formData: FormData) {
-  const { member } = await requireMember();
+  const { member } = await requireStewardMember();
   const id = str(formData, "id");
   if (!id) return;
 
@@ -203,5 +252,65 @@ export async function deleteRelationship(formData: FormData) {
   // Deleting a relationship never removes an existing Release (those are
   // permanent) but keeps future evaluation consistent.
   await reevaluate(member.familyId);
+  revalidatePath("/family");
+}
+
+// --- Join link + join requests (steward) ---------------------------------
+
+/** Create the family's join link if it doesn't exist, or replace it. */
+export async function rotateJoinLink() {
+  const { member } = await requireStewardMember();
+  await prisma.family.update({
+    where: { id: member.familyId },
+    data: { joinCode: randomBytes(12).toString("base64url") },
+  });
+  revalidatePath("/family");
+}
+
+export async function approveJoinRequest(formData: FormData) {
+  const { member } = await requireStewardMember();
+  const id = str(formData, "id");
+  const request = await prisma.joinRequest.findFirst({
+    where: { id, familyId: member.familyId, status: "PENDING" },
+  });
+  if (!request) redirect("/family");
+
+  const created = await prisma.member.create({
+    data: {
+      familyId: member.familyId,
+      givenName: request.givenName,
+      familyName: request.familyName,
+    },
+  });
+  await prisma.joinRequest.update({
+    where: { id: request.id },
+    data: { status: "APPROVED", memberId: created.id, decidedAt: new Date() },
+  });
+  await reevaluate(member.familyId);
+
+  const result = await issueMemberInvite(created.id, request.email, await currentOrigin());
+  revalidatePath("/family");
+  // Land on the new person so the steward can place them in the tree.
+  redirect(
+    result.ok
+      ? `/family?focus=${created.id}&approved=1`
+      : `/family?focus=${created.id}&inviteError=${result.reason}`,
+  );
+}
+
+export async function declineJoinRequest(formData: FormData) {
+  const { member } = await requireStewardMember();
+  const id = str(formData, "id");
+  const request = await prisma.joinRequest.findFirst({
+    where: { id, familyId: member.familyId, status: "PENDING" },
+  });
+  if (!request) redirect("/family");
+  await prisma.joinRequest.update({
+    where: { id: request.id },
+    data: { status: "DECLINED", decidedAt: new Date() },
+  });
+  await sendJoinDeclinedEmail(request.email, member.family.name).catch((err) =>
+    console.error("join decline email failed", err),
+  );
   revalidatePath("/family");
 }
