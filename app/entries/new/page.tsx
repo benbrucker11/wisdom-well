@@ -38,6 +38,7 @@ export default async function NewWisdomPage({
     bucket?: string;
     subtopic?: string;
     none?: string;
+    followup?: string;
   }>;
 }) {
   const { member } = await requireMember();
@@ -164,6 +165,7 @@ export default async function NewWisdomPage({
           }))}
           familyPrompts={familyPrompts}
           members={members.map((m) => ({ id: m.id, name: fullName(m) }))}
+          initialFollowUp={sp.followup === "1"}
         />
       </div>
     </div>

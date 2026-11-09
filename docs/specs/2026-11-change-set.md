@@ -1,6 +1,6 @@
 # Wisdom Well — November 2026 change set (spec for review)
 
-Status: **draft — awaiting approval.** Nothing here is built yet. Decisions
+Status: **approved and built (Nov 2026).** The OPEN questions at the end were all decided as recommended. Decisions
 already made in conversation are recorded as *Decided*; anything still open is
 marked **OPEN** and collected in the last section.
 

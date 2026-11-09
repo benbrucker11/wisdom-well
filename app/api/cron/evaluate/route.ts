@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { sendPendingPasswordPrompts } from "@/lib/auth";
 import { appOrigin } from "@/lib/origin";
 import { evaluateAllFamilies } from "@/lib/release";
+import { sendDueReminders } from "@/lib/reminders-send";
 import { processAllSuccession } from "@/lib/succession";
 import { reconcilePendingDrafts } from "@/lib/transcription";
 
@@ -15,6 +16,7 @@ export const maxDuration = 60;
  *    fire (spec §4). Tree edits, entry publishes and event confirmations
  *    re-evaluate inline, so this is only a backstop for time passing;
  *  - sends the one-time "set your password" email to accounts without one;
+ *  - sends reminder emails to people whose cadence has come round;
  *  - processes stewardship succession: starts a handover once a steward has
  *    been inactive past the threshold, completes one whose grace period has
  *    elapsed, cancels one whose steward came back (spec §9 Phase 3).
@@ -64,6 +66,12 @@ async function run(req: NextRequest) {
     return 0;
   });
 
+  // Reminder emails, per each person's chosen cadence.
+  const remindersSent = await sendDueReminders(appOrigin()).catch((err) => {
+    console.error("sendDueReminders failed", err);
+    return 0;
+  });
+
   return NextResponse.json({
     ranAt: new Date().toISOString(),
     families: releaseResults.length,
@@ -71,6 +79,7 @@ async function run(req: NextRequest) {
     successionActions,
     draftsPolished,
     passwordPromptsSent,
+    remindersSent,
   });
 }
 

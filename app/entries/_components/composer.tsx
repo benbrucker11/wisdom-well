@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { uploadFile } from "../../_lib/upload-client";
 import { askQuestion, createEntry } from "../actions";
 import { MediaUpload } from "./media-upload";
@@ -41,9 +41,12 @@ export function Composer({
   buckets,
   familyPrompts,
   members,
+  initialFollowUp = false,
 }: {
   initialPrompt: ComposerPrompt | null;
   initialMode: Mode;
+  /** Open with a Claude follow-up on what they've already written. */
+  initialFollowUp?: boolean;
   buckets: ComposerBucket[];
   familyPrompts: ComposerPrompt[];
   members: { id: string; name: string }[];
@@ -65,6 +68,15 @@ export function Composer({
   const formRef = useRef<HTMLFormElement | null>(null);
 
   const usingCustom = panel === "custom" && customText.trim().length > 0;
+
+  const followUpStarted = useRef(false);
+  useEffect(() => {
+    if (initialFollowUp && !followUpStarted.current) {
+      followUpStarted.current = true;
+      void nextPrompt({ followUp: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFollowUp]);
 
   async function nextPrompt(opts: { bucket?: string; subtopic?: string; followUp?: boolean } = {}) {
     setLoadingPrompt(true);

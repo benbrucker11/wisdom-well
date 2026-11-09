@@ -9,6 +9,10 @@ Built in the phases described in the product brief.
 - **Phase 2 — Entries & the release engine:** done.
 - **Phase 3 — Stewardship & succession:** done.
 - **Phase 4 — Voice interview:** done.
+- **November 2026 change set:** done — see `docs/specs/2026-11-change-set.md`
+  (password sign-in, landing page and dashboard, one screen to write / record
+  voice / record video, merged prompt library + Claude questions, questions
+  between family members, reminders, join requests, custom relationships).
 
 ---
 
