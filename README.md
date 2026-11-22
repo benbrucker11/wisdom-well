@@ -313,3 +313,6 @@ Vitest · AssemblyAI (`universal-3-5-pro`) · Anthropic (`claude-opus-5`) · Res
 (email) · Cloudflare R2 (media, via the S3 API). Auth is a hand-rolled
 magic-link flow (opaque session token + httpOnly cookie) — no third-party auth
 dependency, no passwords.
+
+## Sandbox test
+
