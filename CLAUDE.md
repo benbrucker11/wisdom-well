@@ -5,6 +5,59 @@ stewardship line of succession, and a voice-interview capture flow. Built in
 four phases (see `README.md`). Next.js App Router + TypeScript + Postgres/Prisma
 + Tailwind v4.
 
+## Sandbox and release workflow (read first, every session)
+
+Three people (Ben, Jared, Gabe) change this site, usually through Claude Code.
+Follow this for every change.
+
+**How it's wired**
+- The live site deploys from `main` on Netlify. A merge to `main` goes live
+  within minutes, and its build runs `prisma migrate deploy` against the
+  **live** database.
+- Every pull request gets a Netlify Deploy Preview
+  (`https://deploy-preview-<PR#>--<site>.netlify.app`) that runs against a
+  separate **sandbox** database, R2 bucket and keys. Previews can't touch live
+  data. Each push to the branch rebuilds the preview.
+- `main` is protected: no direct pushes, every change needs a pull request with
+  1 approval from someone other than the author.
+- Only Ben merges into `main`. He batches merges because Netlify's free plan
+  allows about 20 live deploys a month, and running out pauses the live site.
+
+**Per change**
+1. Branch from the latest `main`, one feature or fix per branch. Never commit
+   or push to `main`.
+2. Before pushing: `npm test` and `npx tsc --noEmit`. Fix failures; never skip,
+   disable or loosen a test to get green.
+3. Ask the user before opening the pull request into `main`.
+4. In the PR description, include a **Changes** section in plain language
+   (family members read it), using only the headings that apply: **Added**,
+   **Changed**, **Fixed**, **Removed**, **Behind the scenes**. Ben copies it into
+   the revision history.
+5. Give the user the Deploy Preview link (Netlify posts it on the PR) and say
+   exactly what to click through to test the change.
+6. A different person reviews and approves. Ben merges.
+
+**Testing on a preview**
+- Sign up with email + password and use made-up data; the sandbox only holds
+  fake families. Sandbox email only reaches Ben, so don't depend on email links.
+- AI cleanup and transcription may be off in the sandbox. That's expected.
+
+**Never**
+- Push to `main`, merge a PR, force-push, or rewrite someone else's branch.
+- Put API keys, passwords, connection strings or other secrets in code,
+  commits or PR text. Secrets live only in Netlify, which Ben manages.
+- Add real family names, photos or personal details. The repo is public.
+
+**Database migrations (`prisma/migrations/`)**
+- Say so plainly to the user and at the top of the PR description.
+- Only one open PR with a migration at a time across all three people. Ask the
+  user to check with the others first.
+- Never edit a migration after its preview has built (the sandbox already
+  applied it); add a new migration instead. A "modified after applied" build
+  error means Ben needs to reset the sandbox; stop and tell the user.
+- On merge it runs on the live database and can't be undone with a click, so
+  keep migrations small and additive.
+
 ## Conventions
 
 - **Pure core, thin DB wrapper.** The hard logic lives in framework-free,
